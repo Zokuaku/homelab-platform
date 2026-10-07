@@ -4,3 +4,9 @@
 allow:
   emails:
     - "noreply@anthropic.com"   # the co-author trailer: commits here are written with Claude Code
+  # The gate refuses a commit whose timestamp carries a time-zone offset (commits are made with
+  # TZ=UTC). These two were published before that rule existed and are accepted as they are,
+  # each by its full id - an entry here can never cover a commit that does not exist yet.
+  timezone_commits:
+    - "020986c1f4ccb828ee7e451d67b0c6df52764160"
+    - "915006aea129f7021260a6422337ecff99e2ed9c"

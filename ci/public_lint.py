@@ -14,8 +14,11 @@ What is scanned (history mode, the default) - every object reachable from every 
             a base64 data URI): must be listed by sha256 in the repository's own
             .public-lint.yaml - a text scan cannot read a screenshot.
   trees     every file and directory name.
-  commits   author and committer (tags: tagger) against the identity allowlist; the message
-            against every rule.
+  commits   author and committer (tags: tagger) against the identity allowlist; their
+            timestamps must carry the offset +0000 (git records the machine's time zone on
+            every commit, and a time zone is a place - commit with TZ=UTC; a commit already
+            published with an offset is accepted by its full id in .public-lint.yaml
+            allow.timezone_commits); the message against every rule.
 
 Two kinds of rule:
   private   literals and regexes from the denylist file. That file names what must never
@@ -89,7 +92,7 @@ SHAPE_RULES = ("ipv4", "mac", "account-id", "email")
 GATE_KEYS = {"schema", "identity", "rules", "never_allow", "push"}
 RULE_KEYS = {"id", "why", "literals", "regexes", "case_sensitive"}
 CONFIG_KEYS = {"allow", "binaries"}
-ALLOW_KEYS = {"ipv4", "mac", "account_ids", "emails"}
+ALLOW_KEYS = {"ipv4", "mac", "account_ids", "emails", "timezone_commits"}
 
 
 class GateError(Exception):
@@ -190,6 +193,7 @@ class RepoConfig:
 
     def __init__(self, text, gate):
         self.ipv4, self.macs, self.accounts, self.emails, self.binaries = [], set(), set(), set(), set()
+        self.tz_commits = set()
         if text is None:
             return
         try:
@@ -212,6 +216,12 @@ class RepoConfig:
                      for x in _list(allow.get("mac"), f"{CONFIG_NAME} allow.mac")}
         self.accounts = {str(x) for x in _list(allow.get("account_ids"), f"{CONFIG_NAME} allow.account_ids")}
         self.emails = {str(x).lower() for x in _list(allow.get("emails"), f"{CONFIG_NAME} allow.emails")}
+        # commits (or tags) already published with a time-zone offset, accepted one by one: a FULL
+        # object id each, so the entry can never cover a commit that does not exist yet
+        self.tz_commits = {str(x).lower() for x in
+                           _list(allow.get("timezone_commits"), f"{CONFIG_NAME} allow.timezone_commits")}
+        if any(not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", x) for x in self.tz_commits):
+            raise GateError(f"{CONFIG_NAME} allow.timezone_commits: every entry is a full commit or tag id")
         for entry in _list(doc.get("binaries"), f"{CONFIG_NAME} binaries"):
             if not isinstance(entry, dict) or not re.fullmatch(r"[0-9a-f]{64}", str(entry.get("sha256", ""))):
                 raise GateError(f"{CONFIG_NAME} binaries: every entry needs path:, sha256: (64 hex) and why:")
@@ -301,7 +311,13 @@ class Scanner:
     def scan_name(self, name, scope, where):
         self.scan_text(name, scope, f"{where} (a file name)", lines=False)
 
-    def scan_ident(self, role, name, email, where, scope="history"):
+    def scan_ident(self, role, name, email, where, scope="history", offset=None):
+        # git stamps every commit with the UTC offset of the machine that made it - a time zone,
+        # which is a place. Public commits are made with TZ=UTC; any other offset is a finding.
+        if offset is not None and offset != "+0000":
+            self.add("commit-timezone", scope, where,
+                     f"{role} timestamp carries the UTC offset {self._value(offset) if self.show else 'of a time zone'}"
+                     f" - commit with TZ=UTC")
         if email.lower() not in self.gate.emails:
             self.add("commit-identity", scope, where,
                      f"{role} address {self._value(email)} is not on the identity allowlist")
@@ -358,15 +374,17 @@ def tree_entries(data, id_bytes):
 
 
 def parse_commit(data):
-    """({role: (name, email)}, message) from a raw commit or tag object."""
+    """({role: (name, email, utc offset)}, message) from a raw commit or tag object. The offset
+    is '' when the line carries none - which is itself not '+0000'."""
     head, _, message = data.partition(b"\n\n")
     idents = {}
     for line in head.split(b"\n"):
         role, _, rest = line.partition(b" ")
         if role in (b"author", b"committer", b"tagger"):
-            m = re.match(rb"(.*?) ?<(.*?)>", rest)
-            idents[role.decode("ascii")] = ((m.group(1), m.group(2)) if m else (rest, b""))
-    return ({k: (n.decode("utf-8", "replace"), e.decode("utf-8", "replace")) for k, (n, e) in idents.items()},
+            m = re.match(rb"(.*?) ?<(.*?)>(?: -?\d+ ([+-]\d{4}))?", rest)
+            idents[role.decode("ascii")] = ((m.group(1), m.group(2), m.group(3) or b"") if m else (rest, b"", b""))
+    return ({k: (n.decode("utf-8", "replace"), e.decode("utf-8", "replace"), z.decode("ascii", "replace"))
+             for k, (n, e, z) in idents.items()},
             message.decode("utf-8", errors="replace"))
 
 
@@ -413,8 +431,9 @@ def scan_history(scanner, repo, tip):
                     scanner.scan_name(entry, "history", f"tree {short}")
         elif kind in ("commit", "tag"):
             idents, _ = parse_commit(data)
-            for role, (name, email) in idents.items():
-                scanner.scan_ident(role, name, email, f"{kind} {short}")
+            for role, (name, email, offset) in idents.items():
+                scanner.scan_ident(role, name, email, f"{kind} {short}",
+                                   offset=None if oid in scanner.config.tz_commits else offset)
             # the WHOLE object, not the message alone: a merged tag (mergetag) and a signature
             # carry names and addresses in header lines the identity check never reads
             # (the three identity lines are left out: scan_ident has already judged them)
@@ -437,10 +456,10 @@ def scan_staged(scanner, repo):
         scanner.scan_blob(data, path, "staged", "")
         scanner.scan_name(path, "staged", path)
     for role, var in (("author", "GIT_AUTHOR_IDENT"), ("committer", "GIT_COMMITTER_IDENT")):
-        m = re.match(r"(.*?) ?<(.*?)>", git(repo, "var", var).decode("utf-8", "replace"))
+        m = re.match(r"(.*?) ?<(.*?)>(?: -?\d+ ([+-]\d{4}))?", git(repo, "var", var).decode("utf-8", "replace"))
         if not m:
             raise GateError(f"git var {var}: no identity is configured")
-        scanner.scan_ident(role, m.group(1), m.group(2), "next commit", scope="staged")
+        scanner.scan_ident(role, m.group(1), m.group(2), "next commit", scope="staged", offset=m.group(3) or "")
     return f"{len(blobs)} staged file(s) + the next commit's identity"
 
 
