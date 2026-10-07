@@ -1,0 +1,6 @@
+# Values the release gate (ci/public_lint.py) is allowed to pass in THIS repository.
+# Only its built-in shape rules take entries here; a change to this file shows up in a merge
+# request like any other.
+allow:
+  emails:
+    - "noreply@anthropic.com"   # the co-author trailer: commits here are written with Claude Code

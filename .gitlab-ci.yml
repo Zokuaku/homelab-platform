@@ -1,0 +1,54 @@
+# CI for homelab-platform.
+#
+# Two rules hold for every job in this file:
+#   1. FAIL CLOSED. A job that cannot run has not passed.
+#   2. PROVE IT CAN FAIL. Before a job checks the repository it runs its own tool against a
+#      planted defect, through ci/expect-fail.sh, and must see the expected finding. A control
+#      that cannot go red - or a tool that silently is not there - fails the job on every run.
+#
+# release_gate: this repository is a curated copy of a private working repository. A file gets
+# here by being named, one line per file, in an export allowlist; ci/public_lint.py is the net
+# under that allowlist. It reads EVERY commit - file contents, file names, commit messages,
+# author and committer - and fails on anything that identifies a network, a person, a company
+# or a place. Its denylist is a CI/CD file variable (PUBLIC_LINT_DENYLIST): the list of what must
+# not be published is itself not published. Merge requests cannot merge on a red pipeline.
+#
+# Images are pinned by tag AND digest. Job pods run as a non-root user with HOME=/builds, so a
+# job installs nothing system-wide: pip --user only.
+
+stages: [gate]
+
+default:
+  tags: [portfolio-k8s]
+  interruptible: true
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    # a branch push that already has an open merge request would run twice
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+variables:
+  GIT_DEPTH: "0"          # the gate reads the whole history and refuses a shallow clone
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+release_gate:
+  stage: gate
+  image: python:3.12-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970
+  before_script:
+    - pip install --quiet --user pyyaml==6.0.2
+  script:
+    - test -s "$PUBLIC_LINT_DENYLIST" || { echo "PUBLIC_LINT_DENYLIST is not set or names an empty file"; exit 1; }
+    # self-test: a throwaway repository, outside the checkout, with one commit that is wrong twice -
+    # an address in a file (assembled here from four pieces, so nothing address-shaped is ever
+    # committed to THIS repository) and an author who is not on the identity allowlist
+    - git init -q /builds/selftest-gate
+    - printf 'resolver %s.%s.%s.%s\n' 8 8 8 8 > /builds/selftest-gate/planted.txt
+    - git -C /builds/selftest-gate add planted.txt
+    - git -C /builds/selftest-gate -c user.name=Nobody -c user.email=nobody@example.com commit -q -m planted
+    - sh ci/expect-fail.sh "^  ipv4 " python ci/public_lint.py /builds/selftest-gate
+    - sh ci/expect-fail.sh "^  commit-identity " python ci/public_lint.py /builds/selftest-gate
+    # the real scan: every commit reachable from every ref in this clone, plus the checkout
+    - python ci/public_lint.py .
