@@ -1,5 +1,5 @@
 #!/bin/sh
-# ci/expect-fail.sh — the negative-fixture harness.
+# ci/expect-fail.sh — the negative-fixture harness (EVOLUTION ev-115, bl-016 Phase B residual).
 #
 # A control proves itself only by going RED on a planted defect. Every gating CI job runs its
 # own tool against a fixture under ci/fixtures/negative/ BEFORE the real scan, through this
@@ -7,7 +7,7 @@
 #   1. the command exits NON-ZERO  — a control that passes a planted defect is dormant;
 #   2. its output names the EXPECTED finding — a command that fails for another reason (tool
 #      not installed, bad flag, missing file) is NOT a catch. This is the PSScriptAnalyzer
-#      fail-open seen from the other side: there a dead tool looked green, here a dead
+#      fail-open of s59 seen from the other side: there a dead tool looked green, here a dead
 #      tool must not look like a working one.
 #
 #   usage: sh ci/expect-fail.sh '<marker: grep basic regex>' <command> [args...]

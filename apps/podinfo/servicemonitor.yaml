@@ -1,0 +1,19 @@
+# Scrape podinfo's /metrics (EVOLUTION #89) — the first app-level scrape target. Picked up
+# because the #89 Prometheus sets serviceMonitorSelectorNilUsesHelmValues=false (monitors
+# from any namespace/label are selected). Also the metric source bl-017's canary analysis
+# will query later.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: podinfo
+  namespace: podinfo
+  labels:
+    app: podinfo
+spec:
+  selector:
+    matchLabels:
+      app: podinfo
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

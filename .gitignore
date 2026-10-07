@@ -1,0 +1,4 @@
+# CI render output (ci/render-apps.sh) - a job artifact, never a commit
+rendered/
+# local docker tests of the CI jobs mount HOME here (helm cache) - never a commit (s59: 25 chart blobs were swept into 3fc32c7 by git add -A; removed the next commit)
+.home/

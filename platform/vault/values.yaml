@@ -1,0 +1,82 @@
+# HashiCorp Vault — vendored Helm values (chart hashicorp/vault 0.32.0, app v1.21.2)
+# Backend for the External Secrets Operator (EVOLUTION #34). Single-node k3s, integrated
+# Raft storage, internal-only via Traefik. Listener serves TLS since td_vault_001
+# (2026-07-27): dedicated CA (homelab-vault-ca, key off-repo on the management
+# workstation — location in vault STATE.yaml) signs the cert in Secret vault/vault-server-tls (10y).
+# Consumers verify with ca.crt (ESO caBundle, backup CronJob); Traefik encrypts but
+# skip-verifies until the #54 pair rebuild adds a CA mount.
+
+global:
+  enabled: true
+  tlsDisable: false
+
+# We use the External Secrets Operator, NOT the Vault Agent Injector — keep it off.
+injector:
+  enabled: false
+
+server:
+  image:
+    tag: "1.21.2"
+
+  # Listener TLS material (td_vault_001). Secret created out-of-band (NOT GitOps-managed —
+  # it holds the private key): kubectl -n vault create secret generic vault-server-tls
+  # --from-file=tls.crt --from-file=tls.key --from-file=ca.crt
+  volumes:
+    - name: userconfig-vault-server-tls
+      secret:
+        secretName: vault-server-tls
+        defaultMode: 0440
+  volumeMounts:
+    - name: userconfig-vault-server-tls
+      mountPath: /vault/userconfig/vault-server-tls
+      readOnly: true
+  extraEnvironmentVars:
+    VAULT_CACERT: /vault/userconfig/vault-server-tls/ca.crt
+
+  # HA + integrated Raft, single replica (snapshot-able, self-contained).
+  # Vertical/HA growth tracked in bl-027; 2nd node enables Transit auto-unseal cutover.
+  ha:
+    enabled: true
+    replicas: 1
+    raft:
+      enabled: true
+      setNodeId: true
+      config: |
+        ui = true
+
+        listener "tcp" {
+          address       = "[::]:8200"
+          cluster_address = "[::]:8201"
+          tls_cert_file = "/vault/userconfig/vault-server-tls/tls.crt"
+          tls_key_file  = "/vault/userconfig/vault-server-tls/tls.key"
+          tls_disable_client_certs = true
+        }
+
+        storage "raft" {
+          path = "/vault/data"
+        }
+
+        service_registration "kubernetes" {}
+
+  # Raft data on k3s local-path (single-node today; revisit with #38 storage strategy).
+  dataStorage:
+    enabled: true
+    size: 2Gi
+    storageClass: local-path
+
+  standalone:
+    enabled: false
+
+  # Modest footprint on the 8G/24G node (post bl-027 resize).
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# UI/API reached via a pinned NodePort -> Traefik file route vault.example.com (internal-only).
+ui:
+  enabled: true
+  serviceType: NodePort
+  serviceNodePort: 30820

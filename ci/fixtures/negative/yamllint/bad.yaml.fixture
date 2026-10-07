@@ -1,0 +1,4 @@
+# NEGATIVE FIXTURE (ev-115) — planted defect: a duplicate mapping key. PyYAML silently keeps the
+# later value; yamllint key-duplicates is the control that must catch it. See ../README.md.
+service: one
+service: two

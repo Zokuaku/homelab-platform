@@ -1,0 +1,14 @@
+# Model store — IMPERATIVE state by design: git holds the PVC, the PVC holds the models
+# (`ollama pull` once via kubectl exec; see services/ollama QUICKSTART in the estate repo).
+# 30Gi: llama3.1:8b ≈ 4.9 GB + headroom for one or two alternates.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+  namespace: ollama
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 30Gi

@@ -1,0 +1,22 @@
+# NEGATIVE FIXTURE (ev-115) — planted defect: replicas is a string, and the strict schema has no
+# field 'notAField'. kubeconform must report the object invalid. Never applied; the .fixture
+# suffix keeps it out of yamllint's tree walk and out of every Argo CD source path.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: planted-defect
+  namespace: default
+spec:
+  replicas: "three"
+  notAField: true
+  selector:
+    matchLabels:
+      app: planted-defect
+  template:
+    metadata:
+      labels:
+        app: planted-defect
+    spec:
+      containers:
+        - name: planted
+          image: registry.invalid/planted:0

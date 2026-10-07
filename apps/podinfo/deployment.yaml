@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo
+  namespace: podinfo
+  labels:
+    app: podinfo
+spec:
+  # ↓↓↓ Edit this and push — Argo CD auto-syncs the change to the cluster. ↓↓↓
+  replicas: 3
+  selector:
+    matchLabels:
+      app: podinfo
+  template:
+    metadata:
+      labels:
+        app: podinfo
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          imagePullPolicy: IfNotPresent
+          # OTel tracing (EVOLUTION #89): spans -> otel-collector.tracing -> Tempo -> Grafana.
+          # Full command needed: the image defines ./podinfo via CMD (no ENTRYPOINT), so a bare
+          # `args:` would replace the binary itself, not append flags (s33 crash-loop lesson).
+          command:
+            - ./podinfo
+            - --port=9898
+            - --otel-service-name=podinfo
+          ports:
+            - name: http
+              containerPort: 9898
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.tracing.svc.cluster.local:4317"
+            # ↓↓↓ Change the message/color, push, watch it update at podinfo.example.com ↓↓↓
+            - name: PODINFO_UI_MESSAGE
+              value: "Deployed by Argo CD from GitLab — homelab GitOps"
+            - name: PODINFO_UI_COLOR
+              value: "#34577c"
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9898
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9898
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitlab-runner-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"   # before gitlab-runner (wave 4): the ExternalSecret must exist so runners.secret resolves
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Zokuaku/homelab-platform.git
+    targetRevision: main
+    path: platform/gitlab-runner-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitlab-runner
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

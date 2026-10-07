@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  # App-of-apps: this root App watches applications/ and manages every child Application
+  # declared there (argocd-config, podinfo). Apply this once; git is the source of truth after.
+  #   kubectl apply -f bootstrap/root.yaml
+  project: default
+  source:
+    repoURL: https://github.com/Zokuaku/homelab-platform.git
+    targetRevision: main
+    path: applications
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true       # remove a file from applications/ -> that child Application is removed
+      selfHeal: true

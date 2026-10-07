@@ -1,0 +1,17 @@
+# NEGATIVE FIXTURE (ev-115) — a multi-source Application pinned to a chart version that was never
+# published: helm template must fail and render-apps.sh must exit non-zero. Read only by the
+# render self-test (APPS_DIR=ci/fixtures/negative/render/applications).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: planted-helm
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://charts.gitlab.io
+      chart: gitlab-runner
+      targetRevision: 0.0.0-planted-defect
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default

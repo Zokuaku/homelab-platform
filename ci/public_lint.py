@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""public_lint - the last net before a repository is published. FAIL-CLOSED.
+"""public_lint (EVOLUTION ev-45 Track B) - the last net before a repository is published. FAIL-CLOSED.
 
 A public repository is permanent: clones, caches and archives outlive a deletion. This check
 asks one question of a repository that is about to leave - does ANY object in it carry

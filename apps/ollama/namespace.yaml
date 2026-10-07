@@ -1,0 +1,11 @@
+# Ollama — local LLM inference for the AFDA agents (EVOLUTION #13).
+# CPU-ONLY deployment (decision 2026-08-13, session 30): no GPU in the host yet; sized for
+# small-model nightly batch inference (llama3.1:8b), not interactive use. Namespace-isolated
+# and ApplicationSet-ready so a future workload-cluster split re-points it in one line (bl-029).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ollama
+  labels:
+    app.kubernetes.io/managed-by: afda
+    example.com/evolution: "13"

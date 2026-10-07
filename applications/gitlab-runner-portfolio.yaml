@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitlab-runner-portfolio
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"   # after gitlab-runner-portfolio-config (the token ExternalSecret)
+spec:
+  project: default
+  # The runner for the `portfolio` GitLab group (EVOLUTION ev-45 Track B): the SAME chart, the
+  # SAME pinned version and the SAME values file as applications/gitlab-runner.yaml, plus a
+  # small override file — its own release, namespace and token. Bump targetRevision in BOTH
+  # Applications together (the runner tracks the GitLab server's major.minor, bl-114).
+  sources:
+    - repoURL: https://charts.gitlab.io
+      chart: gitlab-runner
+      targetRevision: 0.82.0
+      helm:
+        releaseName: gitlab-runner-portfolio
+        valueFiles:
+          - $values/platform/gitlab-runner/values.yaml             # the shared posture
+          - $values/platform/gitlab-runner-portfolio/values.yaml   # overrides only
+    - repoURL: https://github.com/Zokuaku/homelab-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitlab-runner-portfolio
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

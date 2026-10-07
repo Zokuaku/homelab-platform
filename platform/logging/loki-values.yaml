@@ -1,0 +1,58 @@
+# Loki single-binary (EVOLUTION #89) — chart 7.3.0 pinned in applications/logging.yaml.
+# 7d retention (#89 decision), filesystem storage on a local-path PVC. Single tenant, LAN-internal.
+fullnameOverride: loki
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: filesystem
+  schemaConfig:
+    configs:
+      - from: "2026-01-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+  limits_config:
+    retention_period: 168h            # 7d (#89 decision, 2026-08-17)
+  compactor:
+    retention_enabled: true
+    delete_request_store: filesystem
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    storageClass: local-path
+    size: 4Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# SingleBinary runs every target — scale the scalable-mode deployments to zero.
+read:
+  replicas: 0
+write:
+  replicas: 0
+backend:
+  replicas: 0
+
+# The chart's default memcached caches reserve gigabytes — RAM belongs to Ollama on this node.
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+gateway:
+  enabled: false          # consumers hit loki:3100 directly (single tenant, cluster-internal)
+lokiCanary:
+  enabled: false
+test:
+  enabled: false

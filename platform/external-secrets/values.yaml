@@ -1,0 +1,20 @@
+# External Secrets Operator — vendored Helm values (chart external-secrets/external-secrets 2.8.0)
+# Git-layer secrets interface (EVOLUTION #34). Reads from the in-cluster Vault backend via a
+# ClusterSecretStore using Kubernetes auth (added in Stage D, once Vault k8s-auth is configured).
+
+installCRDs: true
+
+replicaCount: 1
+
+webhook:
+  replicaCount: 1
+
+certController:
+  replicaCount: 1
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 64Mi
+  limits:
+    memory: 192Mi

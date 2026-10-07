@@ -1,0 +1,7 @@
+# NEGATIVE FIXTURE (ev-115) — planted defect: a kind with no schema anywhere. The gate's rule is
+# 'an unknown kind FAILS' (-ignore-missing-schemas is deliberately not set); this proves it.
+apiVersion: planted.invalid/v1
+kind: NoSuchKind
+metadata:
+  name: planted-unknown-kind
+spec: {}

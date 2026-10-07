@@ -1,0 +1,5 @@
+# NEGATIVE FIXTURE (ev-115) — names a resource that does not exist; kustomize build must fail.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - does-not-exist.yaml

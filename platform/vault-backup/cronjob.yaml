@@ -1,0 +1,101 @@
+# Daily age-encrypted Raft snapshot -> external cloud storage (off-site) + Proxmox ZFS (nearline).
+# EVOLUTION #43. Closes td_vault_002.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vault-backup
+  namespace: vault
+spec:
+  schedule: "17 3 * * *"          # 03:17 local — off-peak, deliberately not on the hour
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid       # never let two snapshots race
+  startingDeadlineSeconds: 3600   # still run if the node was briefly down at the trigger time
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          restartPolicy: Never
+          serviceAccountName: vault-backup
+          # The Vault credential is the PROJECTED audience-bound token below (td_vault_007),
+          # not the default automounted JWT; nothing in the pod talks to the k8s API.
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: false                # apk needs root in the ship step (td_vault_006)
+          dnsConfig:
+            # Without this the pod inherits CoreDNS ndots:5 + the example.com search domain, and
+            # every external name (dl-cdn.alpinelinux.org, the storage provider's API) resolves to the
+            # *.example.com wildcard -> Traefik .20. Same fix as argocd-repo-server (#34).
+            options:
+              - name: ndots
+                value: "1"
+          volumes:
+            - name: work
+              emptyDir:
+                medium: Memory     # plaintext snapshot never lands on node disk
+                sizeLimit: 512Mi
+            - name: scripts
+              configMap:
+                name: vault-backup-scripts
+                defaultMode: 0755
+            # Audience-bound SA token for the Vault k8s-auth login (td_vault_007). The
+            # vault-backup role pins audience=vault, so the default kubelet token (API-server
+            # audience) no longer authenticates. kubelet auto-rotates this projection.
+            - name: vault-jwt
+              projected:
+                defaultMode: 0400
+                sources:
+                  - serviceAccountToken:
+                      path: token
+                      audience: vault
+                      expirationSeconds: 600
+            # Projected volume so the SECRET parts (rclone.conf, ssh_key — from Vault via ESO) and
+            # the NON-secret part (known_hosts — from git) land in the same directory. That keeps
+            # `known_hosts_file = /etc/rclone/known_hosts` in rclone.conf valid while letting the
+            # host key be corrected in git alone, with no root token and no re-bootstrap.
+            - name: rclone
+              projected:
+                defaultMode: 0400
+                sources:
+                  - secret:
+                      name: vault-backup-rclone
+                      items:
+                        - {key: rclone.conf, path: rclone.conf}
+                        - {key: ssh_key, path: ssh_key}
+                  - configMap:
+                      name: vault-backup-scripts
+                      items:
+                        - {key: known_hosts, path: known_hosts}
+
+          initContainers:
+            - name: snapshot
+              image: hashicorp/vault:1.21.2       # matches the deployed Vault app version
+              command: ["/bin/sh", "/scripts/snapshot.sh"]
+              volumeMounts:
+                - {name: work, mountPath: /work}
+                - {name: scripts, mountPath: /scripts}
+                - {name: vault-jwt, mountPath: /var/run/secrets/vault-jwt, readOnly: true}
+              resources:
+                requests: {cpu: 50m, memory: 64Mi}
+                limits:   {cpu: 500m, memory: 256Mi}
+
+          containers:
+            - name: ship
+              image: alpine:3.22
+              command: ["/bin/sh", "/scripts/ship.sh"]
+              env:
+                - name: AGE_RECIPIENT
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vault-backup-scripts
+                      key: age-recipient
+              volumeMounts:
+                - {name: work, mountPath: /work}
+                - {name: scripts, mountPath: /scripts}
+                - {name: rclone, mountPath: /etc/rclone, readOnly: true}
+              resources:
+                requests: {cpu: 50m, memory: 64Mi}
+                limits:   {cpu: 500m, memory: 512Mi}

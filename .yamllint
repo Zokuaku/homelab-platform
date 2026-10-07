@@ -1,0 +1,31 @@
+# .yamllint — k8s-manifests lint config (EVOLUTION ev-114 sitting 2, bl-016 Phase A).
+# Same rule set as the estate repo's .yamllint: long lines and missing document starts are
+# house style (vendored chart values carry upstream's long comment lines); everything that
+# would break a parser or hide a duplicate key stays ON. Baseline clean at filing.
+extends: default
+
+ignore: |
+  .git/
+  rendered/
+
+rules:
+  line-length: disable
+  document-start: disable
+  colons:
+    max-spaces-after: -1
+  commas:
+    max-spaces-after: -1
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: disable
+  indentation:
+    spaces: consistent
+    indent-sequences: consistent
+  truthy:
+    allowed-values: ["true", "false", "yes", "no"]
+    check-keys: false
+  key-duplicates: enable
+  trailing-spaces: enable
+  new-line-at-end-of-file: enable
+  empty-lines:
+    max: 3

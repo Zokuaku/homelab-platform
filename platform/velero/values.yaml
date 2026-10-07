@@ -1,0 +1,65 @@
+# Velero v1.18.1 (chart 12.1.0) — cluster backup to the estate MinIO (the Docker host :9000), bl-040.
+# Every PVC on this cluster is local-path (no CSI snapshot support), so PV data travels via
+# FILE-SYSTEM BACKUP: the node-agent (kopia) reads pod volumes and uploads to the bucket.
+# GitOps caveat (bl-040 body): Argo CD rebuilds everything declarative — Velero's real payload
+# is the STATEFUL residue (PVCs, secrets not yet in Vault, CRD state).
+# Vault note: the vault namespace IS included as belt-and-braces, but the AUTHORITATIVE Vault
+# backup/restore path stays #43 (raft snapshot + age + cloud storage) — restore Vault from there.
+# Restore drill runbook: the private operations repository, services/velero/docs/RUNBOOK.md.
+image:
+  repository: velero/velero
+  tag: v1.18.1
+
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.14.2
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+
+credentials:
+  useSecret: true
+  existingSecret: velero-minio-credentials   # ESO-projected (platform/velero-config); key 'cloud'
+
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: velero
+      config:
+        region: minio
+        s3ForcePathStyle: "true"
+        s3Url: http://192.0.2.40:9000    # MinIO on the Docker host, LAN direct (no Traefik hop — bl-080 precedent)
+        checksumAlgorithm: ""                # required for MinIO with the aws-sdk-v2 plugin
+  volumeSnapshotLocation: []                 # no CSI snapshots on local-path — FSB only
+  defaultVolumesToFsBackup: true
+  garbageCollectionFrequency: 1h
+
+snapshotsEnabled: false
+deployNodeAgent: true
+
+nodeAgent:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 1Gi          # kopia uploads spike during the nightly window; the k3s node has 24G
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+metrics:
+  enabled: true            # scraped later via the monitoring stack if a ServiceMonitor is added
+
+schedules:
+  nightly:
+    disabled: false
+    schedule: "30 8 * * *"   # 08:30 UTC — before the hypervisor's nightly VM-image backup
+    template:
+      ttl: 240h              # keep ~10 nightly backups; bucket lives on the Docker host's 983G root fs
+      defaultVolumesToFsBackup: true

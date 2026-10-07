@@ -1,0 +1,17 @@
+# NEGATIVE FIXTURE (ev-115) — an Application whose kustomize root names a resource that does not
+# exist (the MR !5 defect, made permanent). Read only by the render self-test
+# (APPS_DIR=ci/fixtures/negative/render/applications); the app-of-apps never sees ci/.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: planted-kustomize
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Zokuaku/homelab-platform.git
+    targetRevision: main
+    path: ci/fixtures/negative/render/kustomize-missing-resource
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default

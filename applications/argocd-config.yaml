@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-config
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Zokuaku/homelab-platform.git
+    targetRevision: main
+    path: platform/argocd
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false      # NEVER prune Argo CD's own control-plane resources
+      selfHeal: true    # keep server.insecure + NodePort applied
+    syncOptions:
+      - ServerSideApply=true   # safe shared field ownership on adopted install resources

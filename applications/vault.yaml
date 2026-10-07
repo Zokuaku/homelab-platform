@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"   # Vault (backend) before external-secrets (wave 2)
+spec:
+  project: default
+  # Multi-source: upstream HashiCorp Helm chart (pinned) + vendored values.yaml from THIS repo.
+  # Values live in git (platform/vault/values.yaml) so they are reviewable and diffable.
+  sources:
+    # Helm pull of external charts requires argocd-repo-server to run dnsConfig ndots:1 —
+    # otherwise CoreDNS (ndots:5 + search example.com + *.example.com->Traefik) resolves
+    # helm.releases.hashicorp.com.example.com -> Traefik and fails TLS. The fix lives on the
+    # repo-server Deployment, NOT here (Argo normalizes/strips a trailing-dot FQDN in repoURL).
+    # See platform/argocd/repo-server-dns-patch.yaml.
+    - repoURL: https://helm.releases.hashicorp.com
+      chart: vault
+      targetRevision: 0.32.0            # app v1.21.2 (mature 1.x line)
+      helm:
+        valueFiles:
+          - $values/platform/vault/values.yaml
+    - repoURL: https://github.com/Zokuaku/homelab-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated:
+      prune: false      # NEVER prune Vault — its Raft PVC holds all secret state
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

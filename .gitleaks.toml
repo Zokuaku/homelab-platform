@@ -1,0 +1,7 @@
+# .gitleaks.toml — k8s-manifests secrets gate (EVOLUTION ev-114 sitting 2, bl-016 Phase A).
+# Default ruleset, NO allowlist: the full history (21 commits at filing, 2026-09-15) and the
+# tree are clean. An allowlist entry names ONE path and its reason (the ClusterSecretStore
+# caBundle — a public certificate — if the default rules ever flag it); never a directory-wide
+# silence. The same file drives the local pre-commit hook and the CI job.
+[extend]
+useDefault = true

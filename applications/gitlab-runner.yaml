@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitlab-runner
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"   # after gitlab-runner-config (the token ExternalSecret)
+spec:
+  project: default
+  # Multi-source (velero.yaml pattern): upstream chart PINNED + vendored values from THIS repo.
+  # Chart 0.82.0 = runner 18.5.0, matched to GitLab CE 18.5.2 — bump in step with bl-114.
+  sources:
+    - repoURL: https://charts.gitlab.io
+      chart: gitlab-runner
+      targetRevision: 0.82.0
+      helm:
+        releaseName: gitlab-runner
+        valueFiles:
+          - $values/platform/gitlab-runner/values.yaml
+    - repoURL: https://github.com/Zokuaku/homelab-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitlab-runner
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

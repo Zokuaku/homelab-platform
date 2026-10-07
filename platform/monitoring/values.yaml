@@ -1,0 +1,101 @@
+# kube-prometheus-stack values (EVOLUTION #89). Chart 88.3.0 pinned in applications/monitoring.yaml.
+# Sized for the single-node k3s mgmt cluster (the k3s node, 8 vCPU / 24 Gi, shared with Ollama's
+# cpu6/mem10Gi envelope) — modest requests, homelab retention. The node's root filesystem has ~18G free:
+# PVCs across #89 total 14Gi thin-provisioned on local-path.
+
+fullnameOverride: monitoring
+
+# k3s runs controller-manager/scheduler/proxy/etcd INSIDE the k3s binary — their standalone
+# metric endpoints don't exist; leaving these enabled creates permanently-down targets.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    retention: 15d                    # #89 decision (2026-08-17)
+    # Select ServiceMonitors/Rules from ANY app regardless of Helm release label —
+    # podinfo's monitor now, bl-083's generated PrometheusRules later.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 8Gi
+
+# Watchdog-only routing (#89 step E): real alert receivers are #56's channel decision — do
+# not add receivers here until that lands.
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+
+grafana:
+  admin:
+    existingSecret: grafana-admin     # ESO-projected from Vault secret/platform/grafana
+    userKey: admin-user
+    passwordKey: admin-password
+  service:
+    type: NodePort
+    nodePort: 30300                   # Traefik -> .10:30300 (grafana.example.com, LAN-only)
+  grafana.ini:
+    server:
+      root_url: https://grafana.example.com
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: local-path
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.logging.svc.cluster.local:3100
+    - name: Tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.tracing.svc.cluster.local:3200
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 128Mi

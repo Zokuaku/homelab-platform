@@ -1,0 +1,24 @@
+# argocd-repo-server DNS fix (EVOLUTION #34)
+#
+# WHY: repo-server pulls external Helm charts (Vault, ESO, and later Crossplane #33). In-cluster
+# CoreDNS uses ndots:5 + `search example.com`, and *.example.com wildcards to Traefik (.20).
+# For a multi-dot external host like helm.releases.hashicorp.com, the resolver appends the search
+# domain FIRST -> helm.releases.hashicorp.com.example.com -> Traefik -> TLS failure (default cert).
+# ndots:1 makes multi-dot names resolve as absolute FQDNs first; 0-dot cluster names (argocd-redis)
+# still get the search domain, so in-cluster resolution is unaffected.
+#
+# NOT self-managed by the argocd-config Application (kustomize can't patch a resource from the
+# out-of-band base install without SSA field-ownership conflicts). Apply this AFTER any base
+# reinstall, imperatively:
+#
+#   kubectl -n argocd patch deploy argocd-repo-server --patch-file platform/argocd/repo-server-dns-patch.yaml
+#
+# Verify: kubectl -n argocd get deploy argocd-repo-server \
+#           -o jsonpath='{.spec.template.spec.dnsConfig}'   # -> options ndots=1
+spec:
+  template:
+    spec:
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"

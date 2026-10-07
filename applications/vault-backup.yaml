@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault-backup
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"   # after external-secrets-config (wave 3) — needs the ClusterSecretStore
+spec:
+  project: default
+  # Scheduled Raft snapshots, age-encrypted, shipped off-site (EVOLUTION #43).
+  source:
+    repoURL: https://github.com/Zokuaku/homelab-platform.git
+    targetRevision: main
+    path: platform/vault-backup
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

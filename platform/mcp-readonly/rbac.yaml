@@ -1,0 +1,79 @@
+# mcp-readonly — read-only ServiceAccount for the workstation MCP kubernetes server
+# (EVOLUTION #58; GitOps adoption closes td_mgmt_005 / bl-059).
+# Originally kubectl-applied imperatively 2026-08-07; adopted by Argo 2026-08-13 so a
+# cluster rebuild restores it. The token VALUE is injected by the token controller —
+# this file carries no secret material.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mcp-readonly
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/managed-by: afda
+    example.com/evolution: "58"
+---
+# Beyond the built-in 'view' role: cluster-scoped reads the MCP server needs
+# (nodes, namespaces, PVs, storageclasses, CRDs; argoproj.io app state — bl-071,
+# chain bl-096 member 3). Deliberately NO secrets access; pods/exec stays OUT.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mcp-readonly-cluster-extra
+  labels:
+    example.com/evolution: "58"
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces", "persistentvolumes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["argoproj.io"]   # bl-071: Argo app Sync/Health — the GitOps heartbeat — was invisible to the MCP surface
+    resources: ["applications", "applicationsets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mcp-readonly-view
+  labels:
+    example.com/evolution: "58"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: mcp-readonly
+    namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mcp-readonly-cluster-extra
+  labels:
+    example.com/evolution: "58"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mcp-readonly-cluster-extra
+subjects:
+  - kind: ServiceAccount
+    name: mcp-readonly
+    namespace: kube-system
+---
+# Long-lived token for the workstation .mcp.json (value populated by the controller,
+# never stored in git). Rotate by deleting the Secret and re-extracting.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mcp-readonly-token
+  namespace: kube-system
+  labels:
+    example.com/evolution: "58"
+  annotations:
+    kubernetes.io/service-account.name: mcp-readonly
+type: kubernetes.io/service-account-token

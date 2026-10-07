@@ -1,0 +1,16 @@
+# GitLab Runner for the `portfolio` GitLab group (EVOLUTION ev-45 Track B, sitting 1).
+#
+# OVERRIDES ONLY. applications/gitlab-runner-portfolio.yaml loads platform/gitlab-runner/
+# values.yaml FIRST and this file second: executor, job-pod security context, RBAC rules and
+# resource bounds are the estate runner's, by construction — a posture change is made once, in
+# that file, and reaches both runners. Add a key here only when the two must differ, and say why.
+#
+# Why a second runner at all: `portfolio` is a top-level group ON PURPOSE (a subgroup of
+# homelab would inherit that group's members, CI/CD variables and runner). A group runner
+# serves one top-level group, so the public repositories get their own registration, their own
+# token (Vault secret/platform/gitlab-runner-portfolio) and their own namespace — the estate
+# runner is not widened and the isolated project runner is not touched.
+# Registration: ONCE in the GitLab UI (group portfolio -> Build -> Runners, tag portfolio-k8s,
+# untagged OFF, protected OFF). Records: the private operations repository, services/gitlab-runner/.
+
+concurrent: 1            # one job pod at a time: the estate runner may already be running two on this node

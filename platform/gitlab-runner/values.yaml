@@ -1,0 +1,108 @@
+# GitLab Runner 18.5.0 (chart 0.82.0) — the estate's VALIDATION CI runner (EVOLUTION ev-114,
+# bl-016 Phase A). Kubernetes executor on THIS cluster; jobs are small lint/validate containers.
+# Version rule: the runner tracks the GitLab server's major.minor (CE 18.5.2) — bump
+# this chart IN STEP with the bl-114 server hops (recorded in services/gitlab STATE version_watch).
+# Credential: the group runner's authentication token lives in Vault secret/platform/gitlab-runner
+# (property runner-token), projected by ESO into Secret gitlab-runner-secret (platform/
+# gitlab-runner-config). Never in git. Registration happens ONCE in the GitLab UI (group
+# homelab, tag estate-k8s) — the chart never registers or unregisters anything.
+# Records: the private operations repository, services/gitlab-runner/ (STATE + QUICKSTART).
+
+gitlabUrl: https://gitlab.example.com/
+
+concurrent: 2            # two job pods at most — the node also hosts Vault, Argo CD, observability
+checkInterval: 10
+unregisterRunners: false # the runner is UI-owned; a chart delete must not delete the group runner
+
+runners:
+  secret: gitlab-runner-secret   # ESO-projected (platform/gitlab-runner-config); key runner-token
+  # Executor config — TOML, templated by the chart. Job pods: non-root, no privilege, no docker
+  # socket, no host mounts, bounded resources. Job images are pinned per job in .gitlab-ci.yml.
+  # ONE values file, TWO releases (ev-45 Track B): applications/gitlab-runner.yaml (group
+  # homelab) and applications/gitlab-runner-portfolio.yaml (group portfolio) both load this
+  # file, so the job-pod posture below cannot drift between them. Only the name = label differs
+  # — it is what a job log prints after 'on'. These lines are YAML comments ON PURPOSE: a comment
+  # INSIDE the block below is part of the rendered config.toml, changes the ConfigMap checksum
+  # and rolls the runner (the first draft did exactly that). As written, the first release
+  # renders byte-identically to the pre-ev-45 file (helm template + cmp, s72).
+  config: |
+    [[runners]]
+      name = "{{ if eq .Release.Name "gitlab-runner" }}estate-k8s{{ else }}portfolio-k8s{{ end }}"
+      executor = "kubernetes"
+      # HOME for EVERY job script stage (helper get_sources included): a non-root uid with no passwd
+      # entry has HOME=/ and git dies on '//.gitconfig: Permission denied' (first deploy, s58).
+      # /builds is the shared emptyDir build volume — writable via fs_group in every container.
+      environment = ["HOME=/builds"]
+      [runners.kubernetes]
+        namespace = "{{ .Release.Namespace }}"
+        image = "alpine:3.20"
+        privileged = false
+        allow_privilege_escalation = false
+        poll_timeout = 600
+        cpu_request = "100m"
+        cpu_limit = "1"
+        memory_request = "128Mi"
+        memory_limit = "1Gi"
+        helper_cpu_request = "50m"
+        helper_cpu_limit = "500m"
+        helper_memory_request = "64Mi"
+        helper_memory_limit = "256Mi"
+        [runners.kubernetes.pod_security_context]
+          run_as_non_root = true
+          run_as_user = 59417     # the gitlab-runner user built into the helper image (docs: non-root kubernetes executor)
+          run_as_group = 59417
+          fs_group = 59417
+
+rbac:
+  create: true
+  clusterWideAccess: false           # a namespaced Role only — the runner SA never sees other namespaces
+  # Explicit least-privilege rules: the chart's default when rules is empty is '*' on every core
+  # resource in the namespace. The kubernetes executor needs exactly these.
+  rules:
+    - apiGroups: [""]
+      resources: ["pods"]
+      verbs: ["get", "list", "watch", "create", "patch", "delete"]
+    - apiGroups: [""]
+      resources: ["pods/exec", "pods/attach"]
+      verbs: ["create", "patch", "delete"]
+    - apiGroups: [""]
+      resources: ["pods/log"]
+      verbs: ["get", "list"]
+    - apiGroups: [""]
+      resources: ["secrets"]
+      verbs: ["get", "list", "create", "update", "delete"]
+    - apiGroups: [""]
+      resources: ["configmaps"]
+      verbs: ["get", "list", "create", "update", "delete"]
+    - apiGroups: [""]
+      resources: ["services"]
+      verbs: ["get", "list", "create", "delete"]
+    - apiGroups: [""]
+      resources: ["events"]
+      verbs: ["list", "watch"]
+
+serviceAccount:
+  create: true
+
+# The runner manager pod itself (not the job pods) — chart defaults are already non-root with
+# all capabilities dropped; restated here so a chart bump cannot silently loosen them.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  privileged: false
+  capabilities:
+    drop: ["ALL"]
+podSecurityContext:
+  runAsUser: 100
+  fsGroup: 65533
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+metrics:
+  enabled: true            # :9252 — a ServiceMonitor can join the monitoring stack later

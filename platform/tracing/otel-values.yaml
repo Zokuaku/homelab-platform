@@ -1,0 +1,32 @@
+# OpenTelemetry Collector gateway (EVOLUTION #89) — chart 0.170.0 pinned in
+# applications/tracing.yaml. Receives OTLP from instrumented apps (podinfo is the first),
+# batches, and forwards to Tempo. Traces-only: the metrics pipeline is Prometheus's job and
+# the logs pipeline is Alloy's — the chart's default pipelines for both are nulled out.
+fullnameOverride: otel-collector
+mode: deployment
+replicaCount: 1
+
+image:
+  repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-k8s
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+config:
+  exporters:
+    otlp/tempo:
+      endpoint: tempo.tracing.svc.cluster.local:4317
+      tls:
+        insecure: true                # cluster-internal hop; TLS everywhere is bl-044's arc
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [batch]
+        exporters: [otlp/tempo]
+      metrics: null
+      logs: null

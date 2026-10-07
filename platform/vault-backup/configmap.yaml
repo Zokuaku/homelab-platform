@@ -1,0 +1,106 @@
+# Non-secret backup parameters + the two scripts the CronJob runs.
+# The age RECIPIENT is a public key — safe in git by design. Its private half is offline-only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-backup-scripts
+  namespace: vault
+data:
+  # age public recipient for the dedicated Vault-backup keypair (EVOLUTION #43).
+  # The matching PRIVATE key is in offline operator custody and exists NOWHERE in this cluster,
+  # this repo, or the cloud storage account — that separation is what makes off-site egress safe.
+  age-recipient: "age1REPLACE-WITH-YOUR-BACKUP-RECIPIENT-PUBLIC-KEY"
+
+  # Proxmox (192.0.2.30) host PUBLIC keys, pinned so the nearline sftp hop cannot be MITM'd.
+  # Public keys are not secrets — keeping them in git (rather than Vault) means correcting them
+  # never requires the root token.
+  #
+  # ALL THREE types are listed deliberately. rclone does not narrow HostKeyAlgorithms to what the
+  # known_hosts file contains, so the server picks by its own preference (RSA first here). With only
+  # the ed25519 entry present, the negotiated RSA key had nothing to match and rclone reported
+  # "knownhosts: key mismatch" — which reads like a wrong key rather than a missing algorithm.
+  known_hosts: |
+    192.0.2.30 ssh-rsa REPLACE_WITH_THE_HOST_PUBLIC_KEY
+    192.0.2.30 ecdsa-sha2-nistp256 REPLACE_WITH_THE_HOST_PUBLIC_KEY
+    192.0.2.30 ssh-ed25519 REPLACE_WITH_THE_HOST_PUBLIC_KEY
+
+  # The homelab-vault-ca PUBLIC cert (td_vault_001) — verifies the Vault listener TLS.
+  # Public material, safe in git; mounted into the snapshot container via the scripts volume.
+  vault-ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    REPLACE-WITH-THE-CA-CERTIFICATE-OF-YOUR-VAULT-LISTENER
+    -----END CERTIFICATE-----
+
+  # ---- step 1: take an application-consistent Raft snapshot -------------------------
+  snapshot.sh: |
+    #!/bin/sh
+    set -eu
+
+    # TRAILING DOT is mandatory: vault.vault.svc.cluster.local has 4 dots (< CoreDNS ndots:5), so
+    # the resolver would try search-appended variants first, and *.example.com wildcards to
+    # Traefik — the name would resolve to .20 instead of Vault (td_vault_004).
+    # https + CA verify since td_vault_001; the CA lives in this same ConfigMap (/scripts mount).
+    export VAULT_ADDR="https://vault.vault.svc.cluster.local.:8200"
+    export VAULT_CACERT="/scripts/vault-ca.crt"
+
+    echo "[snapshot] authenticating to Vault via Kubernetes auth (role: vault-backup)"
+    # Projected audience-bound token (td_vault_007) — NOT the default kubelet token, which
+    # carries the API-server audience and is rejected by the audience-pinned role.
+    JWT="$(cat /var/run/secrets/vault-jwt/token)"
+    VAULT_TOKEN="$(vault write -field=token auth/kubernetes/login role=vault-backup jwt="${JWT}")"
+    export VAULT_TOKEN
+
+    echo "[snapshot] saving raft snapshot"
+    # A raft snapshot is atomic and application-consistent. NEVER substitute a raw PVC copy.
+    vault operator raft snapshot save /work/vault.snap
+
+    # A zero-byte snapshot is a silent-failure mode: fail the job loudly instead of shipping it.
+    test -s /work/vault.snap
+    echo "[snapshot] ok — $(wc -c < /work/vault.snap) bytes"
+
+  # ---- step 2: encrypt, then ship off-site + nearline -------------------------------
+  ship.sh: |
+    #!/bin/sh
+    set -eu
+
+    # TODO(td_vault_006): replace this runtime apk install with a pinned, pre-built image once the
+    # GitLab container registry + CI land (bl-016). Pinned here to alpine:3.22 for reproducibility.
+    apk add --no-cache age rclone openssh-client >/dev/null
+
+    TS="$(date -u +%Y%m%dT%H%M%SZ)"
+    SRC="/work/vault.snap"
+    ENC="/work/vault-${TS}.snap.age"
+
+    test -s "${SRC}"
+
+    echo "[ship] encrypting to ${AGE_RECIPIENT}"
+    age -r "${AGE_RECIPIENT}" -o "${ENC}" "${SRC}"
+    # Drop the plaintext the instant it is no longer needed. /work is memory-backed (see cronjob),
+    # so the unencrypted secret store never touches node disk at all.
+    rm -f "${SRC}"
+
+    export RCLONE_CONFIG=/etc/rclone/rclone.conf
+    NAME="vault-${TS}.snap.age"
+
+    echo "[ship] -> external cloud storage (authoritative off-site)"
+    rclone copyto "${ENC}" "offsite:vault-backups/daily/${NAME}"
+
+    echo "[ship] -> Proxmox ZFS (nearline, fast restore)"
+    rclone copyto "${ENC}" "pmxzfs:daily/${NAME}"
+
+    # Sunday promotion gives the 4-weekly tier without a second schedule.
+    if [ "$(date -u +%u)" = "7" ]; then
+      echo "[ship] Sunday — promoting to weekly"
+      rclone copyto "${ENC}" "offsite:vault-backups/weekly/${NAME}"
+      rclone copyto "${ENC}" "pmxzfs:weekly/${NAME}"
+    fi
+
+    # Retention: 7 daily + 4 weekly, enforced per destination.
+    # Non-fatal: a retention hiccup must never mark a SUCCESSFUL backup as failed.
+    echo "[ship] applying retention (7 daily / 28 weekly)"
+    rclone delete --min-age 7d  "offsite:vault-backups/daily"  || echo "[ship] WARN: offsite daily retention failed"
+    rclone delete --min-age 28d "offsite:vault-backups/weekly" || echo "[ship] WARN: offsite weekly retention failed"
+    rclone delete --min-age 7d  "pmxzfs:daily"                || echo "[ship] WARN: zfs daily retention failed"
+    rclone delete --min-age 28d "pmxzfs:weekly"               || echo "[ship] WARN: zfs weekly retention failed"
+
+    echo "[ship] done — ${NAME}"

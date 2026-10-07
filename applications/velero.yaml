@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: velero
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"   # after velero-config (the credentials ExternalSecret)
+spec:
+  project: default
+  # Multi-source (vault.yaml pattern): upstream chart pinned + vendored values from THIS repo.
+  sources:
+    - repoURL: https://vmware-tanzu.github.io/helm-charts
+      chart: velero
+      targetRevision: 12.1.0            # app v1.18.1
+      helm:
+        valueFiles:
+          - $values/platform/velero/values.yaml
+    - repoURL: https://github.com/Zokuaku/homelab-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: velero
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true            # Velero CRDs carry large schemas (monitoring precedent)

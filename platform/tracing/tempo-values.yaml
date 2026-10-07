@@ -1,0 +1,18 @@
+# Tempo monolithic (EVOLUTION #89) — chart 1.24.4 pinned in applications/tracing.yaml.
+# OTLP in (4317/4318, chart default receivers) from the collector; Grafana queries :3200.
+fullnameOverride: tempo
+
+tempo:
+  reportingEnabled: false
+  retention: 168h                     # traces get the log window (7d) — cheap to raise later
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi   # 512Mi OOMKilled on first real UI use (s33: Grafana Search-tab tag scans) — query paths spike well above the ~50Mi idle
+
+persistence:
+  enabled: true
+  storageClassName: local-path
+  size: 4Gi

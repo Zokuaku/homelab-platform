@@ -1,22 +1,28 @@
 # CI for homelab-platform.
 #
-# Two rules hold for every job in this file:
-#   1. FAIL CLOSED. A job that cannot run has not passed.
+# This repository is the GitOps source Argo CD applies to a k3s cluster: a broken kustomization
+# or an invalid custom resource on main reaches the cluster within minutes. So:
+#
+#   1. FAIL CLOSED. A job that cannot run has not passed, and a merge request cannot merge on a
+#      red pipeline.
 #   2. PROVE IT CAN FAIL. Before a job checks the repository it runs its own tool against a
-#      planted defect, through ci/expect-fail.sh, and must see the expected finding. A control
-#      that cannot go red - or a tool that silently is not there - fails the job on every run.
+#      planted defect (ci/fixtures/negative/, through ci/expect-fail.sh) and must see the expected
+#      finding. A control that cannot go red - or a tool that silently is not there - fails the
+#      job on every run. A new job lands with its fixture.
+#
+# Stages: gate -> secrets -> lint -> validate.
 #
 # release_gate: this repository is a curated copy of a private working repository. A file gets
 # here by being named, one line per file, in an export allowlist; ci/public_lint.py is the net
 # under that allowlist. It reads EVERY commit - file contents, file names, commit messages,
 # author and committer - and fails on anything that identifies a network, a person, a company
 # or a place. Its denylist is a CI/CD file variable (PUBLIC_LINT_DENYLIST): the list of what must
-# not be published is itself not published. Merge requests cannot merge on a red pipeline.
+# not be published is itself not published.
 #
 # Images are pinned by tag AND digest. Job pods run as a non-root user with HOME=/builds, so a
-# job installs nothing system-wide: pip --user only.
+# job installs nothing system-wide: pip --user only, every other tool already on the image.
 
-stages: [gate]
+stages: [gate, secrets, lint, validate]
 
 default:
   tags: [portfolio-k8s]
@@ -33,7 +39,12 @@ workflow:
 variables:
   GIT_DEPTH: "0"          # the gate reads the whole history and refuses a shallow clone
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  KUBE_VERSION: "1.36.0"  # the schema set kubeconform validates against - the cluster's k3s minor
+  # Schemas for custom resources (ExternalSecret, ServiceMonitor, Application, the Velero kinds):
+  # the datree catalog. An unknown kind FAILS - -ignore-missing-schemas is deliberately not set.
+  CRD_SCHEMAS: "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
 
+# ---------------------------------------------------------------- gate
 release_gate:
   stage: gate
   image: python:3.12-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970
@@ -52,3 +63,74 @@ release_gate:
     - sh ci/expect-fail.sh "^  commit-identity " python ci/public_lint.py /builds/selftest-gate
     # the real scan: every commit reachable from every ref in this clone, plus the checkout
     - python ci/public_lint.py .
+
+# ---------------------------------------------------------------- secrets
+gitleaks:
+  stage: secrets
+  image:
+    name: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+    entrypoint: [""]
+  script:
+    - gitleaks version
+    # self-test: the planted key id is FABRICATED and assembled here from two halves that match no
+    # rule apart - nothing key-shaped is ever committed (ci/fixtures/negative/README.md)
+    - mkdir -p /builds/selftest-gitleaks && printf 'aws_access_key_id = %s%s\n' AKIA Z7QX2MPL4RTN6WYB > /builds/selftest-gitleaks/planted.txt
+    - sh ci/expect-fail.sh "leaks found" gitleaks dir --redact --no-banner --exit-code 1 -c .gitleaks.toml /builds/selftest-gitleaks
+    # The whole history, every run: this repository is published, so "what is new" is not enough -
+    # a secret in an old commit is as public as one in the newest.
+    - gitleaks git --redact --no-banner --exit-code 1 -c .gitleaks.toml .
+
+# ---------------------------------------------------------------- lint
+yamllint:
+  stage: lint
+  image: python:3.12-alpine@sha256:b64631e04e4920160c50fbe8d8df828f7f35f06f425cb44aa09bca53e708a35a
+  before_script:
+    - pip install --quiet --user yamllint==1.35.1
+  script:
+    - sh ci/expect-fail.sh "key-duplicates" python -m yamllint --strict -c .yamllint ci/fixtures/negative/yamllint/bad.yaml.fixture
+    - python -m yamllint --strict -c .yamllint .
+
+# ---------------------------------------------------------------- validate
+# alpine/k8s bundles kustomize, helm, kubeconform and yq (with bash and curl): one toolbox image,
+# tools on the system PATH for any uid. Tag = the upstream kubectl minor it ships.
+.validate:
+  stage: validate
+  image: alpine/k8s:1.36.4@sha256:358ddfc2d6ff3f00dd461dbd79aaa6d6738709f225b8da0945bb63bd4dbc304e
+  artifacts:
+    when: always
+    paths: [rendered/]
+    expire_in: 7 days
+
+manifests_kubeconform:
+  # Application objects + every kustomize root (kustomize build) + every plain-directory source
+  extends: .validate
+  script:
+    # self-tests: the render step, the schema check, and the 'an unknown kind FAILS' rule -
+    # then the real render and validation
+    - sh ci/expect-fail.sh "planted-kustomize kustomize build" env OUT=/builds/selftest-rendered APPS_DIR=ci/fixtures/negative/render/applications bash ci/render-apps.sh manifests
+    # kubeconform SKIPS an explicitly named file whose extension is not .yaml/.yml/.json
+    # ('0 resource found', exit 0), so the fixtures become .yaml OUTSIDE the checkout: in-tree
+    # they would need an exclusion in yamllint's real scan
+    - mkdir -p /builds/selftest-kubeconform && for f in ci/fixtures/negative/kubeconform/*.fixture; do cp "$f" "/builds/selftest-kubeconform/$(basename "$f" .fixture)"; done
+    - sh ci/expect-fail.sh "is invalid" kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" -schema-location default -schema-location "$CRD_SCHEMAS" /builds/selftest-kubeconform/bad-deployment.yaml
+    - sh ci/expect-fail.sh "could not find schema" kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" -schema-location default -schema-location "$CRD_SCHEMAS" /builds/selftest-kubeconform/unknown-kind.yaml
+    - bash ci/render-apps.sh manifests
+    - kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" -schema-location default -schema-location "$CRD_SCHEMAS" rendered/manifests
+
+helm_kubeconform:
+  # every chart source of every multi-source Application, rendered with its vendored values.
+  # resource_group: one helm render at a time across pipelines - two concurrent runs double the
+  # chart-index fetches and one of them times out
+  extends: .validate
+  resource_group: helm-render
+  script:
+    # self-tests: a chart version that was never published must fail the render, and the schema
+    # check must reject the planted Deployment with THIS job's flags
+    - sh ci/expect-fail.sh "planted-helm helm template" env OUT=/builds/selftest-rendered APPS_DIR=ci/fixtures/negative/render/applications bash ci/render-apps.sh helm
+    - mkdir -p /builds/selftest-kubeconform && for f in ci/fixtures/negative/kubeconform/*.fixture; do cp "$f" "/builds/selftest-kubeconform/$(basename "$f" .fixture)"; done
+    - sh ci/expect-fail.sh "is invalid" kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" -schema-location default -schema-location "$CRD_SCHEMAS" -skip CustomResourceDefinition /builds/selftest-kubeconform/bad-deployment.yaml
+    - bash ci/render-apps.sh helm
+    # -skip CustomResourceDefinition: the charts' own CRD objects (--include-crds, as Argo CD
+    # renders them) have no strict schema upstream; the instances authored here are what this
+    # job validates
+    - kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" -schema-location default -schema-location "$CRD_SCHEMAS" -skip CustomResourceDefinition rendered/helm
