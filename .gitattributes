@@ -1,0 +1,7 @@
+# Language statistics on GitHub. This repository is Kubernetes configuration: count the YAML
+# (it is left out by default, as "data"), and do not let the pipeline tooling under ci/ decide
+# what the repository is labelled as. These attributes change nothing about how git stores or
+# checks out a file.
+*.yaml linguist-detectable
+*.yml linguist-detectable
+ci/** linguist-vendored
