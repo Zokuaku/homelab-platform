@@ -20,6 +20,13 @@ loki:
           period: 24h
   limits_config:
     retention_period: 168h            # 7d (#89 decision, 2026-08-17)
+    # Some log streams are kept 30 days (estate ev-135 D2, ev-138 D2): the questions they
+    # answer arrive days later. Everything else stays at 7d.
+    # Watch the 4Gi volume below against estate bl-115.
+    retention_stream:
+      - selector: '{job="edge"}'
+        priority: 1
+        period: 720h
   compactor:
     retention_enabled: true
     delete_request_store: filesystem
