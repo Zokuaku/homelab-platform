@@ -13,6 +13,13 @@ What is scanned (history mode, the default) - every object reachable from every 
   blobs     text: every rule. Binary (a NUL byte, a binary extension, or a text file carrying
             a base64 data URI): must be listed by sha256 in the repository's own
             .public-lint.yaml - a text scan cannot read a screenshot.
+  encoded   base64 inside a text blob or a commit message is DECODED and what comes out is
+            scanned: every rule when it is text, the private rules over its printable strings
+            when it is binary (a certificate carries its subject in the clear inside DER). The
+            result is searched again, four levels deep, and gzip / zlib payloads are inflated
+            on the way (a Helm release is base64 of base64 of gzip). Independently, the base64
+            form of every denylist literal is searched for at all three byte alignments, so a
+            literal is found inside a run that does not decode cleanly from its first character.
   trees     every file and directory name.
   commits   author and committer (tags: tagger) against the identity allowlist; their
             timestamps must carry the offset +0000 (git records the machine's time zone on
@@ -45,6 +52,7 @@ a shallow clone, a bad config, nothing to scan). Both non-zero codes block.
 """
 
 import argparse
+import base64
 import hashlib
 import ipaddress
 import os
@@ -52,6 +60,7 @@ import re
 import subprocess
 import sys
 import threading
+import zlib
 from pathlib import Path
 
 import yaml
@@ -67,6 +76,20 @@ BINARY_EXT = {
     ".eot", ".mp3", ".mp4", ".mov", ".wav", ".docx", ".xlsx", ".pptx", ".odt", ".drawio",
 }
 DATA_URI = re.compile(r"data:[a-z]+/[a-z0-9.+-]+;base64,", re.I)
+
+# Encoded text. A run of 12 base64 characters holds 9 bytes; anything shorter is every English
+# word. Shorter encodings of a denylist literal are caught by the fragment search instead.
+MIN_B64_RUN = 12
+B64_RUN = re.compile(r"[A-Za-z0-9+/_-]{%d,}={0,2}" % MIN_B64_RUN)
+B64_LINE = re.compile(r"[ \t]*([A-Za-z0-9+/_-]{%d,}={0,2})[ \t\r]*" % MIN_B64_RUN)   # a wrapped block: PEM, a YAML scalar
+MIN_FRAGMENT = 6             # base64 characters; six cover a five-character literal at every alignment
+MAX_DECODE_DEPTH = 4         # base64 of base64 of gzip of base64 - and no further
+MAX_DECODED = 4 * 1024 * 1024        # bytes kept from one decode or one inflate
+DECODE_BUDGET = 64 * 1024 * 1024     # bytes decoded per object before the check says it stopped
+TEXT_RATIO = 0.9             # a decode this printable is text and gets every rule
+STRINGS = re.compile(rb"[\x20-\x7e]{4,}")
+STRINGS_16 = re.compile(rb"(?:[\x20-\x7e]\x00){4,}")
+URLSAFE = str.maketrans("+/", "-_")
 LFS_POINTER = "version https://git-lfs.github.com/spec/"
 
 # RFC 5737 documentation ranges, loopback, the unspecified / wildcard-mask block and netmasks
@@ -131,6 +154,94 @@ def _networks(values, where):
     return nets
 
 
+def b64_fragments(literal):
+    """{fragment: (lead, byte length)} - the base64 text a literal becomes at each of the three
+    byte alignments, cut back to the characters that depend on the literal alone. The first and
+    last characters of an encoding mix in a neighbouring byte, so a fragment alone does not pin
+    the literal's first and last character: confirm_fragment() does that."""
+    raw = literal.encode("utf-8")
+    out = {}
+    for lead in range(3):
+        encoded = base64.b64encode(b"\0" * lead + raw + b"\0\0").decode("ascii")
+        fragment = encoded[-(-8 * lead // 6):8 * (lead + len(raw)) // 6]
+        if len(fragment) >= MIN_FRAGMENT:
+            out[fragment] = out[fragment.translate(URLSAFE)] = (lead, len(raw))
+    return out
+
+
+def confirm_fragment(text, pos, lead, size, pattern):
+    """True unless decoding around the match PROVES it is not the literal. The characters that
+    hold the literal's first and last bits sit just outside the fragment; when they are there
+    the bytes are decoded and the rule itself decides. When they are not (the run was cut), the
+    match stands - a finding nobody can rule out is a finding."""
+    start = pos - -(-8 * lead // 6)
+    if start < 0:
+        return True
+    m = re.compile(r"[A-Za-z0-9+/_-]*").match(text, start)
+    window = m.group(0)[:4 * -(-(lead + size) // 3)]
+    data = b64_decode(window) or b""
+    if len(data) < lead + size:
+        return True
+    return bool(pattern.search(data[lead:lead + size].decode("utf-8", errors="replace")))
+
+
+def b64_candidates(text):
+    """(offset, run) for everything in text that could be base64: wrapped blocks joined into one
+    run (a PEM body, a folded YAML scalar), then every single run - the lines of a block too,
+    because a list of separately encoded values looks exactly like one wrapped value."""
+    offset, group = 0, []
+    for line in text.split("\n") + [""]:
+        m = B64_LINE.fullmatch(line)
+        if m:
+            group.append((offset, m.group(1)))
+        else:
+            if len(group) > 1:
+                yield group[0][0], "".join(piece.rstrip("=") for _, piece in group)
+            group = []
+        offset += len(line) + 1
+    for m in B64_RUN.finditer(text):
+        yield m.start(), m.group(0)
+
+
+def b64_decode(run):
+    """bytes, or None when the run is not base64 after all. Both alphabets, padding optional."""
+    body = run.rstrip("=").translate(str.maketrans("-_", "+/"))
+    if len(body) % 4 == 1:
+        body = body[:-1]             # a dangling character carries no whole byte
+    try:
+        return base64.b64decode(body + "=" * (-len(body) % 4))[:MAX_DECODED]
+    except ValueError:
+        return None
+
+
+def inflate(data):
+    """the payload unpacked, when it is gzip or zlib; nothing otherwise"""
+    if data[:2] == b"\x1f\x8b":
+        wbits = 16 + zlib.MAX_WBITS
+    elif len(data) > 2 and data[0] & 0x0f == 8 and (data[0] * 256 + data[1]) % 31 == 0:
+        wbits = zlib.MAX_WBITS
+    else:
+        return None
+    try:
+        return zlib.decompressobj(wbits).decompress(data, MAX_DECODED)
+    except zlib.error:
+        return None
+
+
+def readable(data):
+    """(text, private_only): the payload as text when it is text, else its printable strings -
+    which get the private rules only, because random bytes imitate an address now and then."""
+    try:
+        text = data.decode("utf-8")
+        if text and sum(c.isprintable() or c in "\n\r\t" for c in text) >= TEXT_RATIO * len(text):
+            return text, False
+    except UnicodeDecodeError:
+        pass
+    strings = [s.decode("ascii") for s in STRINGS.findall(data)]
+    strings += [s.decode("utf-16-le") for s in STRINGS_16.findall(data)]
+    return "\n".join(strings), True
+
+
 class Gate:
     """The private denylist file: rules, the identity allowlist, what may never be allowed."""
 
@@ -146,6 +257,7 @@ class Gate:
         _unknown(doc, GATE_KEYS, "denylist")
 
         self.rules = []          # (id, compiled pattern, [lower-case literals])
+        self.fragments = []      # (id, pattern of the literals' base64 forms, {form: (lead, size)}, rule pattern)
         for rule in _list(doc.get("rules"), "denylist rules"):
             _unknown(rule, RULE_KEYS, "denylist rule")
             rid = rule.get("id")
@@ -167,6 +279,16 @@ class Gate:
             if pattern.search(""):
                 raise GateError(f"denylist rule {rid}: a pattern matches the empty string")
             self.rules.append((rid, pattern, [x.lower() for x in literals]))
+            spellings = set(literals)
+            if not rule.get("case_sensitive"):       # base64 is case-sensitive; text is not
+                for x in literals:
+                    spellings.update((x.lower(), x.upper(), x.capitalize(), x.title()))
+            encoded = {}
+            for x in sorted(spellings):
+                encoded.update(b64_fragments(x))
+            if encoded:
+                longest_first = sorted(encoded, key=len, reverse=True)
+                self.fragments.append((rid, re.compile("|".join(re.escape(x) for x in longest_first)), encoded, pattern))
         if not self.rules:
             raise GateError("denylist: no rules - an empty denylist is a dormant control")
 
@@ -286,6 +408,59 @@ class Scanner:
             if count > MAX_PER_RULE:
                 self.add(rid, scope, where, f"+{count - MAX_PER_RULE} more")
 
+    def _decoded(self, run, depth, budget):
+        """(rule, matched text, depth) for everything found by decoding one base64 run."""
+        data = b64_decode(run)
+        if not data:
+            return
+        for payload in (data, inflate(data)):
+            if not payload:
+                continue
+            budget[0] -= len(payload)
+            if budget[0] < 0:
+                return
+            text, private_only = readable(payload)
+            for rid, _, value in self.matches(text, private_only):
+                yield rid, value, depth
+            if depth < MAX_DECODE_DEPTH:
+                for _, inner in b64_candidates(text):
+                    yield from self._decoded(inner, depth + 1, budget)
+
+    def scan_encoded(self, text, scope, where, lines=True):
+        """Base64 inside text: decode it and scan the result; search for the encoded literals."""
+        hits, counts, budget = {}, {}, [DECODE_BUDGET]
+
+        def place(offset):
+            return f"{where}:{text.count(chr(10), 0, offset) + 1}" if lines else where
+
+        def hit(rid, at, detail):
+            if (rid, at) not in hits:
+                hits[(rid, at)] = detail
+                counts[rid] = counts.get(rid, 0) + 1
+
+        candidates = list(b64_candidates(text))
+        for offset, run in candidates:
+            for rid, value, depth in self._decoded(run, 1, budget):
+                hit(rid, place(offset), f"{self._value(value)} inside base64, decoded {depth} level(s)")
+        for rid, encoded, table, rule in self.gate.fragments:
+            for m in encoded.finditer(text):
+                if confirm_fragment(text, m.start(), *table[m.group(0)], rule):
+                    hit(rid, place(m.start()), "the base64 form of a denylisted literal")
+            for offset, run in candidates:           # a wrapped block is searched joined
+                if any(confirm_fragment(run, m.start(), *table[m.group(0)], rule) for m in encoded.finditer(run)):
+                    hit(rid, place(offset), "the base64 form of a denylisted literal")
+        if budget[0] < 0:
+            self.add("encoded-not-scanned", scope, where,
+                     f"more encoded content than this check decodes ({DECODE_BUDGET >> 20} MB) - the rest was not read")
+        shown = {}
+        for (rid, at), detail in hits.items():
+            shown[rid] = shown.get(rid, 0) + 1
+            if shown[rid] <= MAX_PER_RULE:
+                self.add(rid, scope, at, detail)
+        for rid, count in counts.items():
+            if count > MAX_PER_RULE:
+                self.add(rid, scope, where, f"+{count - MAX_PER_RULE} more inside base64")
+
     def scan_blob(self, data, path, scope, label):
         where = f"{label} {path}" if label else path
         digest = hashlib.sha256(data).hexdigest()
@@ -307,6 +482,7 @@ class Scanner:
             self.add("embedded-binary", scope, where,
                      f"a base64 data URI - list sha256 {digest} in {CONFIG_NAME} binaries once a human has looked")
         self.scan_text(text, scope, where)
+        self.scan_encoded(text, scope, where)
 
     def scan_name(self, name, scope, where):
         self.scan_text(name, scope, f"{where} (a file name)", lines=False)
@@ -440,6 +616,7 @@ def scan_history(scanner, repo, tip):
             head_text, sep, message = data.decode("utf-8", errors="replace").partition("\n\n")
             rest = [ln for ln in head_text.split("\n") if not ln.startswith(("author ", "committer ", "tagger "))]
             scanner.scan_text("\n".join(rest) + sep + message, "history", f"{kind} {short} message", lines=False)
+            scanner.scan_encoded("\n".join(rest) + sep + message, "history", f"{kind} {short} message", lines=False)
     return (f"{counts['commit']} commit(s), {counts['tag']} tag(s), {counts['tree']} tree(s), "
             f"{counts['blob']} blob(s)")
 
