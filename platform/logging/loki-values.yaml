@@ -1,5 +1,17 @@
 # Loki single-binary (EVOLUTION #89) — chart 7.3.0 pinned in applications/logging.yaml.
 # 7d retention (#89 decision), filesystem storage on a local-path PVC. Single tenant, LAN-internal.
+#
+# TWO WAYS IN (estate EVOLUTION ev-138, 2026-10-11):
+#   - inside the cluster: http://loki.logging.svc.cluster.local:3100, no credential - the pod
+#     collector, a second collector and Grafana. Unchanged.
+#   - from a machine OUTSIDE the cluster: the GATEWAY below (an nginx in front of Loki) with a
+#     user name and password per sending host, on NodePort 30310. Senders do not use the
+#     NodePort: they push to https://loki-push.example.com, where Traefik routes ONLY the
+#     path /loki/api/v1/push and only from the hosts on its allow list (estate
+#     services/traefik/config.yml). A sender's credential can write lines and read none.
+#   ADDING A SENDER: (1) estate services/vault/scripts/seed-loki-push-sender.sh <host> (the operator);
+#   (2) one data entry + one htpasswd line in the ExternalSecret at the foot of this file;
+#   (3) the host on Traefik's allow list. The Vault policy already covers every sender.
 fullnameOverride: loki
 deploymentMode: SingleBinary
 
@@ -25,6 +37,9 @@ loki:
     # Watch the 4Gi volume below against estate bl-115.
     retention_stream:
       - selector: '{job="edge"}'
+        priority: 1
+        period: 720h
+      - selector: '{job="game-node"}'
         priority: 1
         period: 720h
   compactor:
@@ -57,9 +72,57 @@ chunksCache:
   enabled: false
 resultsCache:
   enabled: false
+# The outside intake (ev-138) - see TWO WAYS IN at the top. Consumers inside the cluster still
+# hit loki:3100 directly and never pass through it.
 gateway:
-  enabled: false          # consumers hit loki:3100 directly (single tenant, cluster-internal)
+  enabled: true
+  replicas: 1
+  verboseLogging: false   # true writes one access line per push, and those lines are shipped to Loki too
+  basicAuth:
+    enabled: true
+    existingSecret: loki-gateway-htpasswd   # key .htpasswd, rendered by the ExternalSecret below
+  service:
+    type: NodePort
+    nodePort: 30310       # pinned; Traefik's loki-push service names it
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 96Mi
 lokiCanary:
   enabled: false
 test:
   enabled: false
+
+extraObjects:
+  # One line per sending host in the gateway's password file. Each password lives in Vault at
+  # secret/platform/loki-push/<host> (key: password), written by the estate script
+  # seed-loki-push-sender.sh - Git holds only the reference. The chart passes this block
+  # through Helm's own templating first, so the line ESO must evaluate is wrapped in
+  # {{` `}}: Helm prints it as it stands and ESO then turns it into 'host:<bcrypt hash>'.
+  # Until the path is seeded this reports SecretSyncedError and the gateway pod waits for
+  # its Secret; Loki itself and everything inside the cluster are not affected.
+  - apiVersion: external-secrets.io/v1
+    kind: ExternalSecret
+    metadata:
+      name: loki-gateway-htpasswd
+      namespace: logging
+    spec:
+      refreshInterval: 1h
+      secretStoreRef:
+        name: vault-backend
+        kind: ClusterSecretStore
+      target:
+        name: loki-gateway-htpasswd
+        creationPolicy: Owner
+        template:
+          engineVersion: v2
+          data:
+            .htpasswd: |
+              {{`{{ htpasswd "remote-host-1" .remote_host_1 }}`}}
+      data:
+        - secretKey: remote_host_1
+          remoteRef:
+            key: platform/loki-push/remote-host-1
+            property: password
