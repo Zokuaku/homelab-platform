@@ -101,6 +101,8 @@ extraObjects:
   # seed-loki-push-sender.sh - Git holds only the reference. The chart passes this block
   # through Helm's own templating first, so the line ESO must evaluate is wrapped in
   # {{` `}}: Helm prints it as it stands and ESO then turns it into 'host:<bcrypt hash>'.
+  # ESO's htpasswd takes THREE arguments (user, password, "bcrypt" or "sha"); with two the
+  # sync fails with 'wrong number of args for htpasswd: want 3 got 2' (ESO v2.8.0).
   # Until the path is seeded this reports SecretSyncedError and the gateway pod waits for
   # its Secret; Loki itself and everything inside the cluster are not affected.
   - apiVersion: external-secrets.io/v1
@@ -120,7 +122,7 @@ extraObjects:
           engineVersion: v2
           data:
             .htpasswd: |
-              {{`{{ htpasswd "remote-host-1" .remote_host_1 }}`}}
+              {{`{{ htpasswd "remote-host-1" .remote_host_1 "bcrypt" }}`}}
       data:
         - secretKey: remote_host_1
           remoteRef:
