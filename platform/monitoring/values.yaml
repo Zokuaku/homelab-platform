@@ -41,10 +41,55 @@ prometheus:
             requests:
               storage: 8Gi
 
-# Watchdog-only routing (#89 step E): real alert receivers are #56's channel decision — do
-# not add receivers here until that lands.
+# ALERT MAIL (estate ev-139, s81; D1-D4 decided 2026-10-12). The channel is the one ev-56
+# chose and Proxmox already uses: mail from the dedicated alerts account to the operator's inbox.
+#   WHAT IS MAILED: severity warning and critical. A critical repeats every 12 h while it
+#   lasts, a warning every 24 h, and a 'resolved' mail follows. Everything else - severity
+#   info, unlabelled alerts and the always-on Watchdog - goes to 'null' and is not mailed.
+#   The chart's own rules mail too (D3): read what arrives, silence noise by name here.
+#   THE PASSWORD is not in this file: Alertmanager reads it from a file in the Secret
+#   alertmanager-smtp (platform/monitoring-config/externalsecret-alertmanager-smtp.yaml, from
+#   Vault), mounted by alertmanagerSpec.secrets below at /etc/alertmanager/secrets/<name>/.
+#   Read from chart 88.3.0's own values before this was written: config is a map merged over
+#   the chart's default (its inhibit rules are kept; route and receivers are restated here in
+#   full because a list replaces a list), and alertmanagerSpec.secrets mounts as described.
+#   NOBODY WATCHES THE WATCHER (D4): if the cluster is down no mail is sent - estate bl-067.
 alertmanager:
+  config:
+    global:
+      resolve_timeout: 5m
+      smtp_smarthost: 'smtp.example.com:587'
+      smtp_from: 'alerts@example.com'
+      smtp_auth_username: 'alerts@example.com'
+      smtp_auth_password_file: /etc/alertmanager/secrets/alertmanager-smtp/password
+      smtp_require_tls: true
+    route:
+      group_by: ['alertname', 'namespace', 'instance']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 24h
+      receiver: 'null'
+      routes:
+        - receiver: 'null'
+          matchers:
+            - alertname = "Watchdog"
+        - receiver: 'email'
+          matchers:
+            - severity = "critical"
+          repeat_interval: 12h
+        - receiver: 'email'
+          matchers:
+            - severity = "warning"
+          repeat_interval: 24h
+    receivers:
+      - name: 'null'
+      - name: 'email'
+        email_configs:
+          - to: 'operator@example.com'
+            send_resolved: true
   alertmanagerSpec:
+    secrets:
+      - alertmanager-smtp
     resources:
       requests:
         cpu: 10m
