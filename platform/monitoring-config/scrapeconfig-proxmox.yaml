@@ -1,0 +1,24 @@
+# Scrape the hypervisor pve1 (estate EVOLUTION ev-139, sitting 3 B).
+# Debian's prometheus-node-exporter 1.9.0 on the host, installed by the estate repo's
+# services/proxmox/host/node-exporter.sh. On pve1 the exporter's own systemd
+# unit admits only 192.0.2.10 (a pod on k3s-node-1 leaves the node from that address), the
+# workstation and loopback (IPAddressAllow drop-in) - if Prometheus ever scrapes from another
+# address, change the drop-in too. Its first job here is the four-port LACP bond (bond0):
+# node_bonding_active vs node_bonding_slaves.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: proxmox-node
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  jobName: proxmox-node
+  scheme: HTTP
+  metricsPath: /metrics
+  scrapeInterval: 30s
+  staticConfigs:
+    - targets:
+        - 192.0.2.30:9100
+      labels:
+        instance: pve1
