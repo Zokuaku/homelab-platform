@@ -4,3 +4,4 @@ resources:
   - externalsecret.yaml
   - externalsecret-alertmanager-smtp.yaml
   - scrapeconfig-proxmox.yaml
+  - networkpolicy-monitoring-ui.yaml

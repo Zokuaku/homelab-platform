@@ -32,6 +32,8 @@ prometheus:
         memory: 1Gi
       limits:
         memory: 2Gi
+    # the address links in rule annotations and alert mails point at (s86, 2026-10-16)
+    externalUrl: https://prometheus.example.com
     storageSpec:
       volumeClaimTemplate:
         spec:
@@ -40,6 +42,15 @@ prometheus:
           resources:
             requests:
               storage: 8Gi
+  # REACHABLE FROM OUTSIDE THE CLUSTER since 2026-10-16 (s86): NodePort 30090
+  # (the chart's own default number) -> Traefik -> https://prometheus.example.com, the operator's
+  # workstation only. Prometheus has NO login: the pod is fenced by the NetworkPolicy in
+  # platform/monitoring-config/networkpolicy-monitoring-ui.yaml, and Local keeps the client's
+  # source address so that policy can tell Traefik from any other LAN machine.
+  service:
+    type: NodePort
+    nodePort: 30090
+    externalTrafficPolicy: Local
 
 # ALERT MAIL (estate ev-139, s81; D1-D4 decided 2026-10-12). The channel is the one ev-56
 # chose and Proxmox already uses: mail from the dedicated alerts account to the operator's inbox.
@@ -87,7 +98,16 @@ alertmanager:
         email_configs:
           - to: 'operator@example.com'
             send_resolved: true
+  # REACHABLE FROM OUTSIDE THE CLUSTER since 2026-10-16 (s86): NodePort 30903 (the chart's default)
+  # -> Traefik -> https://alertmanager.example.com, the operator's workstation only - the page where alerts
+  # are SILENCED by name (D3). No login: fenced like Prometheus above.
+  service:
+    type: NodePort
+    nodePort: 30903
+    externalTrafficPolicy: Local
   alertmanagerSpec:
+    # the 'View in Alertmanager' link in every alert mail (s86, 2026-10-16)
+    externalUrl: https://alertmanager.example.com
     secrets:
       - alertmanager-smtp
     resources:

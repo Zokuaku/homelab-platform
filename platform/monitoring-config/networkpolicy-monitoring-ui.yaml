@@ -1,0 +1,37 @@
+# Fence for the two monitoring UIs that have NO login (estate s86, 2026-10-16):
+# alertmanager.example.com + prometheus.example.com, the operator's workstation only.
+#
+# Since that day Alertmanager (NodePort 30903) and Prometheus (NodePort 30090) are reachable from
+# outside the cluster so Traefik can serve them. Neither asks for a password - anyone who reaches
+# Alertmanager can SILENCE every alert. Traefik admits only the operator's workstation; this policy makes
+# sure nothing else on the LAN can walk around Traefik to the NodePorts. The two Services use
+# externalTrafficPolicy: Local (platform/monitoring/values.yaml), so a NodePort client keeps its
+# own source address and the ipBlocks below can tell Traefik from any other machine.
+#
+# ALLOWED IN:
+#   - every pod in the cluster (Grafana -> Prometheus, Prometheus -> Alertmanager, the operator,
+#     each pod's own config-reloader scrape) - namespaceSelector {}
+#   - the pod network 10.42.0.0/16 and the node 192.0.2.10: traffic that starts on the node
+#     itself (kubelet probes; a curl to the ClusterIP from k3s-node-1) arrives from the bridge address
+#   - 192.0.2.20 Traefik - the two routes
+#   - 192.0.2.40 the Docker host - Dashy's status dots and Uptime Kuma (health endpoints)
+# Anything else on the LAN: dropped at the pod.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-ui-fence
+  namespace: monitoring
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [alertmanager, prometheus]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {}
+        - ipBlock: {cidr: 10.42.0.0/16}
+        - ipBlock: {cidr: 192.0.2.10/32}
+        - ipBlock: {cidr: 192.0.2.20/32}
+        - ipBlock: {cidr: 192.0.2.40/32}
