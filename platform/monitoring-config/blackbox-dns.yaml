@@ -1,0 +1,195 @@
+# DNS probes for the house's two internal resolvers (estate EVOLUTION ev-152, s88 2026-10-17).
+# WHY: since ev-151 the router resolves through bind9 (.53) and bind9-b (.54) ONLY - no public
+# fallback. If one dies quietly the house keeps working on the other and nobody knows the
+# redundancy is gone; if bind9-b's copy of example.com stops refreshing, it serves stale
+# internal names. This blackbox_exporter probes each resolver every 30 s with three modules:
+#   dns_internal  gitlab.example.com A must be 192.0.2.20 (the zone, primary or secondary)
+#   dns_public    example.com A must be NOERROR (recursion through the resolver's DoT upstream -
+#                 note serve-stale (ev-152) can keep this green for a while during an upstream
+#                 outage, by design: the house still resolves)
+#   dns_soa       example.com SOA - exposes probe_dns_serial, so rules-dns.yaml can see the
+#                 secondary falling behind the primary
+# Proven before filing with this image and this module config on the secondary resolver's host (both resolvers, all
+# three modules probe_success 1, probe_dns_serial 2026101701 on each).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blackbox-dns
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: blackbox-dns
+data:
+  blackbox.yml: |
+    modules:
+      dns_internal:
+        prober: dns
+        timeout: 5s
+        dns:
+          transport_protocol: udp
+          preferred_ip_protocol: ip4
+          query_name: gitlab.example.com
+          query_type: A
+          valid_rcodes: [NOERROR]
+          validate_answer_rrs:
+            fail_if_not_matches_regexp: [".*\t192\.0\.2\.20$"]
+      dns_public:
+        prober: dns
+        timeout: 5s
+        dns:
+          transport_protocol: udp
+          preferred_ip_protocol: ip4
+          query_name: example.com
+          query_type: A
+          valid_rcodes: [NOERROR]
+      dns_soa:
+        prober: dns
+        timeout: 5s
+        dns:
+          transport_protocol: udp
+          preferred_ip_protocol: ip4
+          query_name: example.com
+          query_type: SOA
+          valid_rcodes: [NOERROR]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blackbox-dns
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: blackbox-dns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: blackbox-dns
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: blackbox-dns
+      annotations:
+        # bump when blackbox.yml above changes: the exporter reads it at start
+        blackbox-dns/config-rev: "1"
+    spec:
+      containers:
+        - name: blackbox-exporter
+          image: prom/blackbox-exporter:v0.25.0   # pinned; bump deliberately, never :latest
+          args:
+            - --config.file=/etc/blackbox/blackbox.yml
+          ports:
+            - name: http
+              containerPort: 9115
+          readinessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 24Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/blackbox
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: blackbox-dns
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: blackbox-dns
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: blackbox-dns
+spec:
+  selector:
+    app.kubernetes.io/name: blackbox-dns
+  ports:
+    - name: http
+      port: 9115
+      targetPort: http
+---
+# One ScrapeConfig per module: each probes both resolvers. The relabelling is the standard
+# blackbox pattern - the listed address becomes ?target=, the exporter's Service is scraped.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: dns-internal
+  namespace: monitoring
+  annotations:
+    # This app (sync-wave 3) runs before the chart that owns the ScrapeConfig CRD (wave 4).
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  jobName: dns-internal
+  metricsPath: /probe
+  params:
+    module: [dns_internal]
+  scrapeInterval: 30s
+  staticConfigs:
+    - targets: ["192.0.2.53:53", "192.0.2.54:53"]
+  relabelings:
+    - sourceLabels: [__address__]
+      targetLabel: __param_target
+    - sourceLabels: [__param_target]
+      targetLabel: instance
+    - targetLabel: __address__
+      replacement: blackbox-dns.monitoring.svc:9115
+---
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: dns-public
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  jobName: dns-public
+  metricsPath: /probe
+  params:
+    module: [dns_public]
+  scrapeInterval: 30s
+  staticConfigs:
+    - targets: ["192.0.2.53:53", "192.0.2.54:53"]
+  relabelings:
+    - sourceLabels: [__address__]
+      targetLabel: __param_target
+    - sourceLabels: [__param_target]
+      targetLabel: instance
+    - targetLabel: __address__
+      replacement: blackbox-dns.monitoring.svc:9115
+---
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: dns-soa
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  jobName: dns-soa
+  metricsPath: /probe
+  params:
+    module: [dns_soa]
+  scrapeInterval: 60s
+  staticConfigs:
+    - targets: ["192.0.2.53:53", "192.0.2.54:53"]
+  relabelings:
+    - sourceLabels: [__address__]
+      targetLabel: __param_target
+    - sourceLabels: [__param_target]
+      targetLabel: instance
+    - targetLabel: __address__
+      replacement: blackbox-dns.monitoring.svc:9115

@@ -1,0 +1,69 @@
+# Alert rules for the house's internal resolvers (estate EVOLUTION ev-152, s88 2026-10-17).
+# Scraped by blackbox-dns.yaml (jobs dns-internal, dns-public, dns-soa; instance = resolver:53).
+# Routing: critical and warning are mailed.
+#
+# Since ev-151 the router has NO public DNS fallback - two internal resolvers only:
+#   one down  = the house still resolves, the redundancy is gone   -> warning
+#   both down = no DNS for the house                               -> critical
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dns
+  namespace: monitoring
+  annotations:
+    # This app (sync-wave 3) runs before the chart that owns the PrometheusRule CRD (wave 4).
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  groups:
+    - name: dns
+      rules:
+        - alert: DNSResolverDown
+          # A bind9 reconfig or container recreate takes seconds; 3 minutes is not a reload.
+          expr: probe_success{job="dns-internal"} == 0
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Internal resolver {{ $labels.instance }} not answering example.com"
+            description: >-
+              {{ $labels.instance }} has failed the internal-name probe for 3 minutes. The house
+              still resolves through the other resolver, but there is no redundancy left. bind9 is
+              .53, bind9-b is .54, both on pve1: ssh root@<ip> 'docker ps;
+              docker logs --tail 30 dns' (services/bind9/docs/RUNBOOK.md).
+        - alert: DNSAllResolversDown
+          expr: sum(probe_success{job="dns-internal"}) == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "BOTH internal resolvers down - no DNS for the house"
+            description: >-
+              Neither .53 nor .54 answers example.com, and the router has no public fallback
+              (ev-151). Most likely pve1 itself. Fastest way back for the house: on the router,
+              /ip dns set servers=192.0.2.53,192.0.2.54,198.51.100.1 (a public resolver) until a resolver is up.
+        - alert: DNSPublicResolutionFailing
+          # serve-stale (ev-152) answers recently used names during an upstream outage, so this
+          # fires only once even the cache cannot answer - a real, house-visible failure.
+          expr: probe_success{job="dns-public"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.instance }} cannot resolve public names"
+            description: >-
+              The resolver answers internal names but not example.com: its DNS-over-TLS upstream
+              (Cloudflare / Quad9, tcp 853) is unreachable or rejecting it. Check the WAN, then
+              'docker logs dns | grep -i tls' on the resolver (a provider certificate change shows
+              as 'TLS peer certificate verification failed').
+        - alert: DNSSecondaryBehind
+          # NOTIFY normally brings bind9-b level within seconds; the zone refresh is 12 h.
+          expr: max(probe_dns_serial{job="dns-soa"}) - min(probe_dns_serial{job="dns-soa"}) > 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "bind9-b's example.com serial is behind bind9's for 30 minutes"
+            description: >-
+              The secondary has not picked up the primary's latest zone. Check the transfer on
+              .54: docker logs dns 2>&1 | grep -i transfer - 'bad key' or REFUSED means the two
+              xfer.key files differ or the primary lost allow-transfer (bind9 RUNBOOK 5a).
