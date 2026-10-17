@@ -1,0 +1,107 @@
+# Router metrics over SNMPv3 (estate EVOLUTION ev-155, formalized bl-136, s88 2026-10-17).
+# WHY: the router is the estate's edge and nothing watched it between sessions - the 2026-10-15
+# wall jack held the WAN at 100M/1G and only a hand-run monitor showed it. snmp_exporter
+# (the Prometheus project's own) walks the router with the image's bundled modules:
+#   mikrotik  RouterOS gauges (sfp/cpu/board temperature, fans, PSUs), per-interface error and
+#             link-down counters
+#   if_mib    interface speed (ifHighSpeed) and up/down (ifOperStatus)
+#   hrDevice  per-core CPU load (hrProcessorLoad)
+# Proven in s88 against the live router with this image (a throwaway v2c community, deleted after):
+# 3,231 series, the mikrotik walk 2.6 s, sfp-temperature 67 C = the router's own WAN readout.
+# The router answers ONLY the SNMPv3 user snmp-ro, authPriv, from 192.0.2.10 (k3s-node-1 - pod
+# traffic leaves the node source-NATed to it); the default 'public' community is disabled.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snmp-exporter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: snmp-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: snmp-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: snmp-exporter
+    spec:
+      containers:
+        - name: snmp-exporter
+          image: prom/snmp-exporter:v0.28.0   # pinned; bump deliberately, never :latest
+          args:
+            # the image's bundled modules, then our auth (rendered by ESO) - the files merge
+            - --config.file=/etc/snmp_exporter/snmp.yml
+            - --config.file=/etc/snmp-auth/auth.yml
+          ports:
+            - name: http
+              containerPort: 9116
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: auth
+              mountPath: /etc/snmp-auth
+              readOnly: true
+      volumes:
+        - name: auth
+          secret:
+            secretName: snmp-exporter-auth
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: snmp-exporter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: snmp-exporter
+spec:
+  selector:
+    app.kubernetes.io/name: snmp-exporter
+  ports:
+    - name: http
+      port: 9116
+      targetPort: http
+---
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: snmp-router
+  namespace: monitoring
+  annotations:
+    # This app (sync-wave 3) runs before the chart that owns the ScrapeConfig CRD (wave 4).
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  jobName: snmp-router
+  metricsPath: /snmp
+  params:
+    auth: [router_v3]
+    module: ["mikrotik,if_mib,hrDevice"]
+  scrapeInterval: 60s
+  scrapeTimeout: 30s
+  staticConfigs:
+    - targets: ["192.0.2.1"]
+  relabelings:
+    - sourceLabels: [__address__]
+      targetLabel: __param_target
+    - targetLabel: instance
+      replacement: router
+    - targetLabel: __address__
+      replacement: snmp-exporter.monitoring.svc:9116

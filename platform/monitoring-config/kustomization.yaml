@@ -6,4 +6,6 @@ resources:
   - scrapeconfig-proxmox.yaml
   - blackbox-dns.yaml
   - rules-dns.yaml
+  - externalsecret-snmp-exporter.yaml
+  - snmp-exporter.yaml
   - networkpolicy-monitoring-ui.yaml
