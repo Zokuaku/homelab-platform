@@ -139,6 +139,19 @@ grafana:
       memory: 192Mi
     limits:
       memory: 512Mi
+  sidecar:
+    dashboards:
+      # Folders from configuration, not by hand (the operator s89: 'so I am not having to constantly move them').
+      # The sidecar writes a dashboard ConfigMap annotated grafana_folder: <name> into /tmp/dashboards/<name>,
+      # and the provider turns each directory into a Grafana folder (created if missing). Our ConfigMaps
+      # (platform/monitoring-config) carry Homelab; the chart's own 25 get Default through 'annotations'.
+      # NOT defaultFolderName: it moves the PROVIDER path to /tmp/dashboards/<name> too, so untagged
+      # dashboards would land at the top level (seen in the 88.3.0 render, s89).
+      folderAnnotation: grafana_folder
+      annotations:
+        grafana_folder: Default
+      provider:
+        foldersFromFilesStructure: true
   additionalDataSources:
     - name: Loki
       type: loki

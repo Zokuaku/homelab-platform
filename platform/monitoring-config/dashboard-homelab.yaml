@@ -9,6 +9,8 @@ kind: ConfigMap
 metadata:
   name: dashboard-homelab
   namespace: monitoring
+  annotations:
+    grafana_folder: Homelab   # the Grafana folder (sidecar folderAnnotation, platform/monitoring/values.yaml)
   labels:
     grafana_dashboard: "1"
 data:
