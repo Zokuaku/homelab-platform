@@ -1325,7 +1325,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "ALERTS{alertstate=\"firing\", alertname!=\"Watchdog\"}",
+              "expr": "ALERTS{alertstate=\"firing\", alertname!~\"Watchdog|InfoInhibitor\"}",
               "refId": "A",
               "legendFormat": "",
               "instant": true,
