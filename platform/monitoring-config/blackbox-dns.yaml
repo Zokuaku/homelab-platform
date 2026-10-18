@@ -50,6 +50,17 @@ data:
           query_name: example.com
           query_type: SOA
           valid_rcodes: [NOERROR]
+      # estate ev-162: is a example.com service ANSWERING over valid TLS? A redirect to a login page,
+      # 401 or 403 (a Traefik allow list) counts as up; 404 (Traefik has no route), a timeout or a bad
+      # certificate counts as down. probe_ssl_earliest_cert_expiry gives the certificate's expiry.
+      https_up:
+        prober: http
+        timeout: 10s
+        http:
+          preferred_ip_protocol: ip4
+          no_follow_redirects: true
+          fail_if_not_ssl: true
+          valid_status_codes: [200, 301, 302, 303, 307, 308, 401, 403]
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -69,7 +80,7 @@ spec:
         app.kubernetes.io/name: blackbox-dns
       annotations:
         # bump when blackbox.yml above changes: the exporter reads it at start
-        blackbox-dns/config-rev: "1"
+        blackbox-dns/config-rev: "2"   # bump on a blackbox.yml change: the pod restarts and reads it
     spec:
       containers:
         - name: blackbox-exporter

@@ -4,6 +4,9 @@ resources:
   - externalsecret.yaml
   - externalsecret-alertmanager-smtp.yaml
   - scrapeconfig-proxmox.yaml
+  - dashboard-homelab.yaml
+  - scrapeconfig-homelab.yaml
+  - rules-homelab.yaml
   - blackbox-dns.yaml
   - rules-dns.yaml
   - externalsecret-snmp-exporter.yaml

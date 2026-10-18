@@ -1,0 +1,1369 @@
+# Grafana dashboard: every system's state and every backup's age on one screen (estate EVOLUTION ev-162).
+# GENERATED once from the estate session's scratch script and then kept here as the source of
+# truth; edit the JSON below (or export from Grafana and paste). Loaded by the Grafana sidecar
+# (label grafana_dashboard). Data: up{} of every scrape job; scrapeconfig-homelab.yaml (HTTPS
+# probes, the observer, ArgoCD, Velero); the pve1 textfile (guest state, vzdump ages, etcd
+# off-host + Vault nearline copies) on job proxmox-node; kube-state-metrics. Alerts: rules-homelab.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-homelab
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  homelab-overview.json: |
+    {
+      "uid": "homelab-overview",
+      "title": "Homelab overview",
+      "tags": [
+        "homelab",
+        "backups",
+        "ev-162"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": true,
+      "refresh": "1m",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "links": [],
+      "templating": {
+        "list": []
+      },
+      "annotations": {
+        "list": []
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "row",
+          "title": "Is everything up?",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "panels": []
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Firing alerts",
+          "description": "Warning and critical alerts now firing (they also email). The table at the bottom names them.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 4,
+            "x": 0,
+            "y": 1
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "count(ALERTS{alertstate=\"firing\", alertname!=\"Watchdog\", severity=~\"warning|critical\"}) or vector(0)",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Scrape targets (Prometheus can reach)",
+          "description": "Every system Prometheus collects from - router, hypervisor, cluster, observer, probes.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 20,
+            "x": 4,
+            "y": 1
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "min by (job) (up)",
+              "refId": "A",
+              "legendFormat": "{{job}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "1": {
+                      "text": "UP",
+                      "color": "green"
+                    },
+                    "0": {
+                      "text": "DOWN",
+                      "color": "red"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Services over HTTPS",
+          "description": "Answering with a valid certificate (a login redirect, 401 or 403 counts as up; 404, timeout or a bad certificate = down). ServiceEndpointDown after 5 min.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 24,
+            "x": 0,
+            "y": 7
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "probe_success{job=\"https-services\"}",
+              "refId": "A",
+              "legendFormat": "{{instance}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "1": {
+                      "text": "UP",
+                      "color": "green"
+                    },
+                    "0": {
+                      "text": "DOWN",
+                      "color": "red"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Proxmox guests (pve1)",
+          "description": "Run state of every VM and container (templates left out). Stopped is grey, not red: some guests are off on purpose.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 12
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "afda_pve_guest_running",
+              "refId": "A",
+              "legendFormat": "{{vmid}} {{name}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "1": {
+                      "text": "running",
+                      "color": "green"
+                    },
+                    "0": {
+                      "text": "stopped",
+                      "color": "text"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "ArgoCD applications",
+          "description": "OK = Synced and Healthy. ArgoCDAppUnhealthy after 15 min.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 18
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (name) (argocd_app_info{health_status=\"Healthy\", sync_status=\"Synced\"}) or (sum by (name) (argocd_app_info) * 0)",
+              "refId": "A",
+              "legendFormat": "{{name}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "1": {
+                      "text": "OK",
+                      "color": "green"
+                    },
+                    "0": {
+                      "text": "PROBLEM",
+                      "color": "red"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 7,
+          "type": "row",
+          "title": "Backups - how fresh (100% = one schedule period old; over 110% = late)",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 24
+          },
+          "panels": []
+        },
+        {
+          "id": 8,
+          "type": "bargauge",
+          "title": "Guest backups (vzdump, pve1)",
+          "description": "Age of each guest's newest backup as a share of its schedule (daily 02:30 or weekly Sunday 03:30). GuestBackupStale over 110% + 2 h.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 12,
+            "w": 12,
+            "x": 0,
+            "y": 25
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "(time() - afda_pve_backup_last_timestamp_seconds) / on (vmid, name, job, instance) afda_pve_backup_expected_interval_seconds",
+              "refId": "A",
+              "legendFormat": "{{vmid}} {{name}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "namePlacement": "left",
+            "sizing": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 1.1
+                  },
+                  {
+                    "color": "red",
+                    "value": 1.3
+                  }
+                ]
+              },
+              "max": 1.5
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 9,
+          "type": "bargauge",
+          "title": "Observer jobs (router export, network backup + off-site, repo sync, portal, sensing, Vault renew, weekly report)",
+          "description": "Since each job last SUCCEEDED, as a share of its period. A job not run since the observer booted shows a very high value until its first run.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 25
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "(time() - afda_job_last_success_timestamp_seconds) / afda_job_expected_interval_seconds",
+              "refId": "A",
+              "legendFormat": "{{unit}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "namePlacement": "left",
+            "sizing": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 1.1
+                  },
+                  {
+                    "color": "red",
+                    "value": 1.3
+                  }
+                ]
+              },
+              "max": 1.5
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 10,
+          "type": "stat",
+          "title": "Vault snapshot",
+          "description": "Hours since the vault-backup CronJob last succeeded (daily; encrypted to external cloud storage + pve1).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 12,
+            "y": 33
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "(time() - kube_cronjob_status_last_successful_time{namespace=\"vault\", cronjob=\"vault-backup\"}) / 3600",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "h",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 26
+                  },
+                  {
+                    "color": "red",
+                    "value": 30
+                  }
+                ]
+              },
+              "decimals": 1
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 11,
+          "type": "stat",
+          "title": "Vault nearline copy",
+          "description": "Newest file under pve1 /vpool/backups/vault.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 15,
+            "y": 33
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "(time() - afda_backup_newest_file_timestamp_seconds{set=\"vault-nearline\"}) / 3600",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "h",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 26
+                  },
+                  {
+                    "color": "red",
+                    "value": 30
+                  }
+                ]
+              },
+              "decimals": 1
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 12,
+          "type": "stat",
+          "title": "etcd off-host",
+          "description": "Newest k3s etcd snapshot copied to pve1 (every 6 h) - ages if snapshots OR the copy stop.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 18,
+            "y": 33
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "(time() - afda_backup_newest_file_timestamp_seconds{set=\"etcd-offhost\"}) / 3600",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "h",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 7
+                  },
+                  {
+                    "color": "red",
+                    "value": 8
+                  }
+                ]
+              },
+              "decimals": 1
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 13,
+          "type": "stat",
+          "title": "Velero nightly",
+          "description": "Hours since Velero's nightly cluster backup last succeeded.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 21,
+            "y": 33
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "(time() - velero_backup_last_successful_timestamp{schedule=\"velero-nightly\"}) / 3600",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "h",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 26
+                  },
+                  {
+                    "color": "red",
+                    "value": 30
+                  }
+                ]
+              },
+              "decimals": 1
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 14,
+          "type": "row",
+          "title": "Certificates, hypervisor and cluster",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 37
+          },
+          "panels": []
+        },
+        {
+          "id": 15,
+          "type": "bargauge",
+          "title": "Certificate days left",
+          "description": "Let's Encrypt renews at 30 days left. CertificateExpiringSoon under 14 days.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 8,
+            "x": 0,
+            "y": 38
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "(probe_ssl_earliest_cert_expiry{job=\"https-services\"} - time()) / 86400",
+              "refId": "A",
+              "legendFormat": "{{instance}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "namePlacement": "left",
+            "sizing": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "d",
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 14
+                  },
+                  {
+                    "color": "green",
+                    "value": 30
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 16,
+          "type": "stat",
+          "title": "pve1 ZFS pools",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 8,
+            "y": 38
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "node_zfs_zpool_state{job=\"proxmox-node\", state=\"online\"}",
+              "refId": "A",
+              "legendFormat": "{{zpool}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "1": {
+                      "text": "online",
+                      "color": "green"
+                    },
+                    "0": {
+                      "text": "NOT ONLINE",
+                      "color": "red"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 17,
+          "type": "stat",
+          "title": "pve1 hottest sensor",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 12,
+            "y": 38
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(node_hwmon_temp_celsius{job=\"proxmox-node\"})",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "celsius",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 75
+                  },
+                  {
+                    "color": "red",
+                    "value": 85
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 18,
+          "type": "stat",
+          "title": "k3s node Ready",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 16,
+            "y": 38
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "kube_node_status_condition{condition=\"Ready\", status=\"true\"}",
+              "refId": "A",
+              "legendFormat": "{{node}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "1": {
+                      "text": "OK",
+                      "color": "green"
+                    },
+                    "0": {
+                      "text": "PROBLEM",
+                      "color": "red"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 19,
+          "type": "stat",
+          "title": "Pods not ready",
+          "description": "RUNNING pods whose Ready condition is false (finished Job pods are not counted).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 20,
+            "y": 38
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(kube_pod_status_ready{condition=\"false\"} * on (namespace, pod) group_left() (kube_pod_status_phase{phase=\"Running\"} == 1)) or vector(0)",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 20,
+          "type": "bargauge",
+          "title": "Disk used",
+          "description": "pve1 (root + vpool), k3s-node-1 (its disk also holds every cluster volume - local-path), the observer.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 16,
+            "x": 8,
+            "y": 43
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "1 - node_filesystem_avail_bytes{job=~\"proxmox-node|node-exporter|observer-node\", mountpoint=~\"/|/vpool\"} / node_filesystem_size_bytes{job=~\"proxmox-node|node-exporter|observer-node\", mountpoint=~\"/|/vpool\"}",
+              "refId": "A",
+              "legendFormat": "{{instance}} {{mountpoint}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "namePlacement": "left",
+            "sizing": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 0.8
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.9
+                  }
+                ]
+              },
+              "max": 1
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 21,
+          "type": "row",
+          "title": "What is firing",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 48
+          },
+          "panels": []
+        },
+        {
+          "id": 22,
+          "type": "table",
+          "title": "Firing alerts (warning + critical email you; info only shows here)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 49
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "ALERTS{alertstate=\"firing\", alertname!=\"Watchdog\"}",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "alertstate": true,
+                  "endpoint": true,
+                  "service": true,
+                  "metrics_path": true,
+                  "container": true,
+                  "pod": true
+                },
+                "indexByName": {
+                  "alertname": 0,
+                  "severity": 1,
+                  "instance": 2
+                }
+              }
+            }
+          ],
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          }
+        }
+      ]
+    }

@@ -1,0 +1,125 @@
+# Alerts for the Homelab overview (estate EVOLUTION ev-162): a backup that silently stopped, a
+# service that stopped answering, a certificate that stopped renewing, an ArgoCD app gone bad.
+# Data: scrapeconfig-homelab.yaml + the pve1 / observer textfiles (estate repo, ev-162).
+# 'Stale' = older than the job's own period x 1.1 + 2 h, so a late run is not an alert.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: homelab
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  groups:
+    - name: homelab-backups
+      rules:
+        - alert: GuestBackupStale
+          # every guest a vzdump job covers: daily guests > ~28 h, weekly guests > ~7.9 days
+          expr: (time() - afda_pve_backup_last_timestamp_seconds) > (afda_pve_backup_expected_interval_seconds * 1.1 + 7200)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No fresh vzdump backup of guest {{ $labels.vmid }} ({{ $labels.name }})"
+            description: "Its newest backup on vzdump-backups is {{ $value | humanizeDuration }} old. Read the vzdump task log on pve1 (Datacenter > Backup / the node's Task History)."
+        - alert: VzdumpTaskFailed
+          expr: afda_pve_vzdump_last_task_ok == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The newest vzdump task on pve1 did not end OK"
+            description: "Read the task log on pve1 (Task History, type vzdump)."
+        - alert: EtcdOffhostSnapshotStale
+          # snapshots every 6 h on k3s-node-1, copied to pve1 at :15 - the off-host copy ages if EITHER stops
+          expr: (time() - afda_backup_newest_file_timestamp_seconds{set="etcd-offhost"}) > 8 * 3600
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The newest off-host etcd snapshot on pve1 is older than 8 hours"
+            description: "Either k3s stopped snapshotting (sudo k3s etcd-snapshot ls on k3s-node-1) or the copy stopped (/etc/cron.d/etcd-snapshot-offhost on k3s-node-1)."
+        - alert: VaultBackupStale
+          expr: (time() - kube_cronjob_status_last_successful_time{namespace="vault", cronjob="vault-backup"}) > 26 * 3600 or (time() - afda_backup_newest_file_timestamp_seconds{set="vault-nearline"}) > 26 * 3600
+          for: 30m
+          labels:
+            severity: critical
+          annotations:
+            summary: "The Vault snapshot backup has not succeeded for over 26 hours"
+            description: "CronJob vault/vault-backup or its nearline copy on pve1 /vpool/backups/vault is stale. services/vault/docs/BACKUP_DR.md."
+        - alert: VeleroBackupStale
+          expr: (time() - velero_backup_last_successful_timestamp{schedule="velero-nightly"}) > 26 * 3600 or velero_backup_last_status{schedule="velero-nightly"} != 1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Velero's nightly backup is stale or failed"
+            description: "kubectl -n velero get backups.velero.io --sort-by=.status.completionTimestamp"
+        - alert: ObserverJobStale
+          # a job that has not run since the observer booted (last run 0) is not judged
+          expr: ((time() - afda_job_last_success_timestamp_seconds) > (afda_job_expected_interval_seconds * 1.1 + 7200)) and on (unit) (afda_job_last_run_timestamp_seconds > 0)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Observer job {{ $labels.unit }} has not succeeded in its period"
+            description: "journalctl -u {{ $labels.unit }} -n 50 on the observer."
+        - alert: ObserverJobFailed
+          expr: afda_job_last_run_success == 0 and on (unit) (afda_job_last_run_timestamp_seconds > 0)
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Observer job {{ $labels.unit }} failed on its last run"
+            description: "journalctl -u {{ $labels.unit }} -n 50 on the observer. afda-netdev-backup: a FAIL line names the step."
+        - alert: TextfileWriterStale
+          expr: (time() - afda_textfile_written_timestamp_seconds) > 1800
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The {{ $labels.writer }} textfile writer stopped - the backup ages it reports are frozen"
+            description: "pve: afda-pve-textfile.timer on pve1; observer-jobs: afda-jobs-textfile.timer on the observer."
+    - name: homelab-services
+      rules:
+        - alert: ObserverDown
+          expr: up{job="observer-node"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The observer VM is not answering its node exporter"
+            description: "The observer runs the router export, the network backups, the Vault token renew and the AFDA portal."
+        - alert: ServiceEndpointDown
+          expr: probe_success{job="https-services"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.instance }} is not answering over HTTPS"
+            description: "The https_up probe (a 404 from Traefik, a timeout or a bad certificate counts as down)."
+        - alert: CertificateExpiringSoon
+          # Let's Encrypt renews at 30 days left; under 14 means renewal has been failing for two weeks
+          expr: (probe_ssl_earliest_cert_expiry{job="https-services"} - time()) / 86400 < 14
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "The certificate of {{ $labels.instance }} expires in {{ $value | humanize }} days"
+            description: "Renewal is failing: Traefik's ACME resolver for *.example.com, or pve1's acmerenew task (services/proxmox STATE acme_renew_invalid_domain)."
+        - alert: ArgoCDAppUnhealthy
+          expr: argocd_app_info{health_status!~"Healthy|Progressing"} == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ArgoCD app {{ $labels.name }} is {{ $labels.health_status }}"
+            description: "argocd app get {{ $labels.name }} - or the ArgoCD UI."
+        - alert: ArgoCDAppOutOfSync
+          expr: argocd_app_info{sync_status!="Synced"} == 1
+          for: 1h
+          labels:
+            severity: info
+          annotations:
+            summary: "ArgoCD app {{ $labels.name }} has been {{ $labels.sync_status }} for an hour"
+            description: "A manual change on the cluster, or a manifest that cannot apply."

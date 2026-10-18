@@ -1,0 +1,99 @@
+# Scrape jobs for the Homelab overview (estate EVOLUTION ev-162):
+#   https-services - the example.com services through the blackbox exporter's https_up module
+#                    (answering + certificate expiry). Uptime Kuma's checks move here (bl-147).
+#   observer-node  - the observer VM's node_exporter, including the textfile of its jobs' last
+#                    success (estate management/host/afda-jobs-textfile.py).
+#   argocd         - the ArgoCD application controller's metrics (argocd_app_info: sync + health).
+#   velero         - Velero's metrics (velero_backup_last_successful_timestamp per schedule).
+# pve1's guest state and backup ages arrive on the EXISTING proxmox-node job (its textfile:
+# estate services/proxmox/host/afda-pve-textfile.py).
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: https-services
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  jobName: https-services
+  metricsPath: /probe
+  params:
+    module: [https_up]
+  scrapeInterval: 60s
+  staticConfigs:
+    - targets:
+        - https://gitlab.example.com/
+        - https://vault.example.com/
+        - https://grafana.example.com/
+        - https://argocd.example.com/
+        - https://afda.example.com/
+        - https://portainer.example.com/
+        - https://traefik.example.com/
+        - https://ha.example.com/
+        - https://rancher.example.com/
+        - https://jenkins.example.com/
+        - https://uptime.example.com/
+        - https://pihole.example.com/
+        - https://pve1.example.com:8006/
+  relabelings:
+    - sourceLabels: [__address__]
+      targetLabel: __param_target
+    - sourceLabels: [__param_target]
+      regex: "https://([^/:]+).*"
+      targetLabel: instance
+    - targetLabel: __address__
+      replacement: blackbox-dns.monitoring.svc:9115
+---
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: observer-node
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  jobName: observer-node
+  scheme: HTTP
+  metricsPath: /metrics
+  scrapeInterval: 30s
+  staticConfigs:
+    - targets:
+        - 192.0.2.50:9100
+      labels:
+        instance: observer
+---
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: argocd
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  jobName: argocd
+  scheme: HTTP
+  metricsPath: /metrics
+  scrapeInterval: 60s
+  staticConfigs:
+    - targets:
+        - argocd-metrics.argocd.svc:8082
+      labels:
+        instance: argocd-application-controller
+---
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: velero
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  jobName: velero
+  scheme: HTTP
+  metricsPath: /metrics
+  scrapeInterval: 60s
+  staticConfigs:
+    - targets:
+        - velero.velero.svc:8085
+      labels:
+        instance: velero
