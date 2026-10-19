@@ -1246,9 +1246,9 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "1 - node_filesystem_avail_bytes{job=~\"proxmox-node|node-exporter|observer-node\", mountpoint=~\"/|/vpool\"} / node_filesystem_size_bytes{job=~\"proxmox-node|node-exporter|observer-node\", mountpoint=~\"/|/vpool\"}",
+              "expr": "(1 - node_filesystem_avail_bytes{job=~\"proxmox-node|node-exporter|observer-node\", mountpoint=~\"/|/vpool\"} / node_filesystem_size_bytes{job=~\"proxmox-node|node-exporter|observer-node\", mountpoint=~\"/|/vpool\"}) * on(job, instance) group_left(nodename) node_uname_info",
               "refId": "A",
-              "legendFormat": "{{instance}} {{mountpoint}}",
+              "legendFormat": "{{nodename}} {{mountpoint}}",
               "instant": true,
               "range": false
             }
