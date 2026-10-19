@@ -2,6 +2,8 @@
 # Only its built-in shape rules take entries here; a change to this file shows up in a merge
 # request like any other.
 allow:
+  ipv4:
+    - "10.42.0.0/16"   # the pod network every k3s install uses (its default cluster CIDR)
   emails:
     - "noreply@anthropic.com"   # the co-author trailer: commits here are written with Claude Code
   # The gate refuses a commit whose timestamp carries a time-zone offset (commits are made with
