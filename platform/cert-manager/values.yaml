@@ -1,0 +1,40 @@
+# cert-manager - vendored Helm values (chart jetstack/cert-manager v1.21.2), estate EVOLUTION ev-170.
+# Issues in-cluster certificates from Vault PKI (pki_int/, role cluster-internal) through the
+# ClusterIssuer in platform/cert-manager-config. The Vault side: estate
+# services/vault/scripts/enable-pki-cert-manager.sh (the operator runs it).
+
+crds:
+  enabled: true
+  keep: true          # deleting the app must never delete every Certificate in the cluster
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    memory: 192Mi
+
+webhook:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 96Mi
+
+cainjector:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 192Mi
+
+prometheus:
+  enabled: true
+  servicemonitor:
+    enabled: true     # the monitoring stack selects every ServiceMonitor (NilUsesHelmValues: false)

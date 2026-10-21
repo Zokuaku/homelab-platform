@@ -1,0 +1,42 @@
+# Alert rules for cert-manager (estate EVOLUTION ev-170). Metrics come from the chart's
+# ServiceMonitor (job="cert-manager"). Routing: warning and critical mailed.
+#
+# The renewal path runs through Vault, which is Shamir-sealed after any restart until the operator
+# unseals it. Certificates live 30 days and renew at day 20, so ten days of sealed Vault pass
+# before one expires; CertManagerCertExpiringSoon fires with 7 days left.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cert-manager
+  namespace: monitoring
+  annotations:
+    # This app (sync-wave 3) runs before the chart that owns the PrometheusRule CRD (wave 4).
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  groups:
+    - name: cert-manager
+      rules:
+        - alert: CertManagerCertNotReady
+          expr: max by (namespace, name) (certmanager_certificate_ready_status{condition!="True"}) == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "cert-manager could not issue or renew it for 15 minutes. First check: is Vault unsealed (vault-0 1/1)? Then: kubectl -n {{ $labels.namespace }} describe certificate {{ $labels.name }}."
+        - alert: CertManagerCertExpiringSoon
+          expr: (certmanager_certificate_expiration_timestamp_seconds - time()) < 7 * 86400
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in under 7 days"
+            description: "Renewal should have happened at day 20 of 30. A sealed Vault is the likely cause - unseal it (3 of 5 keys), then check the Certificate's events."
+        - alert: CertManagerAbsent
+          expr: absent(up{job="cert-manager"} == 1)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "cert-manager is not being scraped"
+            description: "No healthy cert-manager metrics target for 15 minutes: the controller is down or its ServiceMonitor is gone, and certificate alerts above are blind."

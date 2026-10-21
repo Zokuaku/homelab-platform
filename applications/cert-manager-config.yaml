@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"   # after cert-manager (wave 2): needs its CRDs
+spec:
+  project: default
+  # Plain kustomize: the ClusterIssuer that binds cert-manager -> Vault PKI, and the service
+  # account it logs in as. Kept apart from the chart app (the external-secrets-config pattern).
+  source:
+    repoURL: https://github.com/Zokuaku/homelab-platform.git
+    targetRevision: main
+    path: platform/cert-manager-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

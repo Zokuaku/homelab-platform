@@ -1,0 +1,28 @@
+# Cluster-wide issuer: Vault PKI (estate EVOLUTION ev-170). Certificates are signed by the
+# intermediate pki_int/ under role cluster-internal (cluster names + homelab.internal, at most
+# 30 days); the root (pki/) only signed that intermediate. Request 30-day certificates renewed
+# at day 20 (ev-170 D2): Vault is Shamir-sealed after a restart until the operator unseals it, so this
+# leaves ten days of sealed Vault before anything expires.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: vault-internal
+  annotations:
+    # This app may sync before the chart that owns the ClusterIssuer CRD on a cold start.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  vault:
+    # TRAILING DOT as in the ESO store (external-secrets-config): an absolute name, so the pod
+    # search path (example.com + the *.example.com wildcard) is never tried first.
+    server: "https://vault.vault.svc.cluster.local.:8200"
+    # homelab-vault-ca - the Vault LISTENER CA (public cert, same bytes as the ESO store).
+    caBundle: "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tClJFUExBQ0UtV0lUSC1USEUtQ0EtQ0VSVElGSUNBVEUtT0YtWU9VUi1WQVVMVC1MSVNURU5FUgotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg=="
+    path: pki_int/sign/cluster-internal
+    auth:
+      kubernetes:
+        mountPath: /v1/auth/kubernetes
+        role: cert-manager
+        serviceAccountRef:
+          name: vault-issuer
+          audiences:
+            - vault       # the Vault role pins audience=vault (the td_vault_007 pattern)

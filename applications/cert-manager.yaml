@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"   # after Vault (wave 1); the ClusterIssuer app is wave 3
+spec:
+  project: default
+  # estate EVOLUTION ev-170: cert-manager issuing in-cluster certificates from Vault PKI.
+  # Multi-source: the upstream jetstack chart (pinned) + vendored values from git.
+  sources:
+    - repoURL: https://charts.jetstack.io
+      chart: cert-manager
+      targetRevision: v1.21.2   # newest stable, read with 'helm search repo' on 2026-10-21
+      helm:
+        valueFiles:
+          - $values/platform/cert-manager/values.yaml
+    - repoURL: https://github.com/Zokuaku/homelab-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true   # the CRDs are large; server-side apply avoids annotation size limits

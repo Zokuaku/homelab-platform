@@ -11,4 +11,5 @@ resources:
   - rules-dns.yaml
   - externalsecret-snmp-exporter.yaml
   - snmp-exporter.yaml
+  - rules-cert-manager.yaml
   - networkpolicy-monitoring-ui.yaml
