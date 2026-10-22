@@ -1,5 +1,7 @@
 # Alert rules for cert-manager (estate EVOLUTION ev-170). Metrics come from the chart's
 # ServiceMonitor (job="cert-manager"). Routing: warning and critical mailed.
+# LABELS (estate ev-173 drill, s94): a certificate's own namespace is exported_namespace - Prometheus
+# gives 'namespace' to the scrape target (always cert-manager). Group and template on exported_namespace.
 #
 # The renewal path runs through Vault, which is Shamir-sealed after any restart until the operator
 # unseals it. Certificates live 30 days and renew at day 20, so ten days of sealed Vault pass
@@ -17,32 +19,32 @@ spec:
     - name: cert-manager
       rules:
         - alert: CertManagerCertNotReady
-          expr: max by (namespace, name) (certmanager_certificate_ready_status{condition!="True"}) == 1
+          expr: max by (exported_namespace, name) (certmanager_certificate_ready_status{condition!="True"}) == 1
           for: 15m
           labels:
             severity: warning
           annotations:
-            summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
-            description: "cert-manager could not issue or renew it for 15 minutes. First check: is Vault unsealed (vault-0 1/1)? Then: kubectl -n {{ $labels.namespace }} describe certificate {{ $labels.name }}."
+            summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} is not Ready"
+            description: "cert-manager could not issue or renew it for 15 minutes. First check: is Vault unsealed (vault-0 1/1)? Then: kubectl -n {{ $labels.exported_namespace }} describe certificate {{ $labels.name }}."
         - alert: CertManagerCertExpiringSoon
-          expr: (certmanager_certificate_expiration_timestamp_seconds - time()) < 7 * 86400
+          expr: (max by (exported_namespace, name) (certmanager_certificate_expiration_timestamp_seconds) - time()) < 7 * 86400
           for: 1h
           labels:
             severity: critical
           annotations:
-            summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in under 7 days"
+            summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} expires in under 7 days"
             description: "Renewal should have happened at day 20 of 30. A sealed Vault is the likely cause - unseal it (3 of 5 keys), then check the Certificate's events."
         # estate ev-173: a certificate passed its renewal time and was not renewed. Fires at day
         # 20 + 1 h - ten days before expiry, three days before CertManagerCertExpiringSoon. A
         # renewal time of 0 (not yet set) is ignored.
         - alert: CertManagerRenewalOverdue
-          expr: (time() - (max by (namespace, name) (certmanager_certificate_renewal_timestamp_seconds) > 0)) > 0
+          expr: (time() - (max by (exported_namespace, name) (certmanager_certificate_renewal_timestamp_seconds) > 0)) > 0
           for: 1h
           labels:
             severity: critical
           annotations:
-            summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} missed its renewal"
-            description: "It should have renewed {{ $value | humanizeDuration }} ago (day 20 of 30), so about ten days remain before it expires. FIRST check that Vault is unsealed (vault-0 1/1; the VaultSealed alert) - unseal with 3 of 5 keys. Then: kubectl -n {{ $labels.namespace }} describe certificate {{ $labels.name }}."
+            summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} missed its renewal"
+            description: "It should have renewed {{ $value | humanizeDuration }} ago (day 20 of 30), so about ten days remain before it expires. FIRST check that Vault is unsealed (vault-0 1/1; the VaultSealed alert) - unseal with 3 of 5 keys. Then: kubectl -n {{ $labels.exported_namespace }} describe certificate {{ $labels.name }}."
         - alert: CertManagerAbsent
           expr: absent(up{job="cert-manager"} == 1)
           for: 15m
