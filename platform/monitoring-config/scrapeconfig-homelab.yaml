@@ -5,6 +5,8 @@
 #                    success (estate management/host/afda-jobs-textfile.py).
 #   argocd         - the ArgoCD application controller's metrics (argocd_app_info: sync + health).
 #   velero         - Velero's metrics (velero_backup_last_successful_timestamp per schedule).
+#   vault-health   - Vault's seal state through the blackbox exporter's vault_unsealed module
+#                    (estate ev-173; rules-vault.yaml).
 # pve1's guest state and backup ages arrive on the EXISTING proxmox-node job (its textfile:
 # estate services/proxmox/host/afda-pve-textfile.py).
 apiVersion: monitoring.coreos.com/v1alpha1
@@ -97,3 +99,32 @@ spec:
         - velero.velero.svc:8085
       labels:
         instance: velero
+---
+# estate ev-173: the vault pod's /v1/sys/health, every 30 s. TRAILING DOT: an absolute name, so the
+# pod search path (example.com + its wildcard) is never tried first. One target per Vault pod -
+# add vault-1 / vault-2 here when Vault goes HA (bl-027).
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: vault-health
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  jobName: vault-health
+  metricsPath: /probe
+  params:
+    module: [vault_unsealed]
+  scrapeInterval: 30s
+  staticConfigs:
+    - targets:
+        - https://vault-0.vault-internal.vault.svc.cluster.local.:8200/v1/sys/health
+      labels:
+        pod: vault-0
+  relabelings:
+    - sourceLabels: [__address__]
+      targetLabel: __param_target
+    - sourceLabels: [pod]
+      targetLabel: instance
+    - targetLabel: __address__
+      replacement: blackbox-dns.monitoring.svc:9115

@@ -61,6 +61,23 @@ data:
           no_follow_redirects: true
           fail_if_not_ssl: true
           valid_status_codes: [200, 301, 302, 303, 307, 308, 401, 403]
+      # estate ev-173: is Vault UNSEALED? /v1/sys/health answers 200 only when Vault is initialised,
+      # unsealed and active; 503 = sealed, 501 = not initialised, 429 = standby. The target is the
+      # pod itself through the headless vault-internal Service, which publishes NOT-ready pods - a
+      # sealed vault-0 is NotReady, so it still answers here (503) instead of vanishing. TLS is
+      # verified against homelab-vault-ca (ConfigMap below); server_name is the certificate's
+      # vault-internal SAN, because the pod's full name is not on it.
+      vault_unsealed:
+        prober: http
+        timeout: 5s
+        http:
+          preferred_ip_protocol: ip4
+          follow_redirects: false   # the non-deprecated spelling (no_follow_redirects warns on v0.25.0)
+          fail_if_not_ssl: true
+          valid_status_codes: [200]
+          tls_config:
+            ca_file: /etc/blackbox-ca/vault-ca.crt
+            server_name: vault-internal.vault.svc.cluster.local
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -80,7 +97,7 @@ spec:
         app.kubernetes.io/name: blackbox-dns
       annotations:
         # bump when blackbox.yml above changes: the exporter reads it at start
-        blackbox-dns/config-rev: "2"   # bump on a blackbox.yml change: the pod restarts and reads it
+        blackbox-dns/config-rev: "3"   # bump on a blackbox.yml change: the pod restarts and reads it
     spec:
       containers:
         - name: blackbox-exporter
@@ -113,10 +130,16 @@ spec:
             - name: config
               mountPath: /etc/blackbox
               readOnly: true
+            - name: vault-ca
+              mountPath: /etc/blackbox-ca
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: blackbox-dns
+        - name: vault-ca
+          configMap:
+            name: blackbox-vault-ca
 ---
 apiVersion: v1
 kind: Service
@@ -204,3 +227,20 @@ spec:
       targetLabel: instance
     - targetLabel: __address__
       replacement: blackbox-dns.monitoring.svc:9115
+---
+# The PUBLIC homelab-vault-ca certificate (estate ev-173): the CA that signs Vault's own
+# listener certificate - the same bytes as the caBundle in cert-manager-config/clusterissuer.yaml
+# and the ESO ClusterSecretStore. A certificate, never a key. The vault_unsealed module verifies
+# Vault's TLS against it, so a probe that passes really did reach Vault.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blackbox-vault-ca
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: blackbox-dns
+data:
+  vault-ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    REPLACE-WITH-THE-CA-CERTIFICATE-OF-YOUR-VAULT-LISTENER
+    -----END CERTIFICATE-----

@@ -1,0 +1,61 @@
+# Alert rules for Vault's seal state (estate EVOLUTION ev-173, s94 2026-10-22).
+# WHY: Vault is Shamir-sealed after every restart until the operator unseals it (3 of 5 keys). Before
+# this, a seal showed only as the generic KubePodNotReady after 15 minutes. Since ev-170 a seal
+# has a clock on it: cert-manager renews certificates at day 20 of 30 through Vault, so ten days
+# of sealed Vault pass before the first one expires. External Secrets reads from
+# Vault too. The probe is the vault-health job (scrapeconfig-homelab.yaml, module vault_unsealed
+# in blackbox-dns.yaml). Routing: warning and critical are mailed.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vault
+  namespace: monitoring
+  annotations:
+    # This app (sync-wave 3) runs before the chart that owns the PrometheusRule CRD (wave 4).
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  groups:
+    - name: vault
+      rules:
+        - alert: VaultSealed
+          expr: max by (instance) (probe_http_status_code{job="vault-health"}) == 503
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Vault is SEALED ({{ $labels.instance }})"
+            description: >-
+              /v1/sys/health answers 503: Vault is running but sealed, usually after a pod or node
+              restart. Nothing can read a secret until it is unsealed. Unseal with 3 of the 5 keys
+              (from their break-glass custody): ssh k3s-node-1, then run
+              sudo k3s kubectl -n vault exec -it vault-0 -- vault operator unseal
+              three times, one key each time (estate services/vault/context/STATE.yaml seal block).
+              WAITING ON IT: cert-manager renewals (day 20 of 30 - ten days before a certificate
+              expires), External Secrets syncs.
+        - alert: VaultHealthCheckFailing
+          expr: >-
+            max by (instance) (probe_success{job="vault-health"}) == 0
+            unless max by (instance) (probe_http_status_code{job="vault-health"}) == 503
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Vault health check failing, not a seal ({{ $labels.instance }})"
+            description: >-
+              The probe of /v1/sys/health has failed for 5 minutes and the answer was not a seal.
+              Read probe_http_status_code{job="vault-health"} in Prometheus: 0 = no answer (the
+              pod is gone, DNS failed or TLS did not verify), 501 = not initialised, 429 =
+              standby. Secrets and certificate renewals stop the same as for a seal. Check:
+              sudo k3s kubectl -n vault get pod vault-0, and its logs.
+        - alert: VaultHealthProbeAbsent
+          expr: absent(probe_success{job="vault-health"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Nothing is checking whether Vault is sealed"
+            description: >-
+              No vault-health probe result for 15 minutes: the blackbox-dns exporter is down or
+              the vault-health ScrapeConfig is gone, so VaultSealed cannot fire. Check
+              kubectl -n monitoring get pod -l app.kubernetes.io/name=blackbox-dns and the
+              monitoring-config app in Argo CD.

@@ -32,6 +32,17 @@ spec:
           annotations:
             summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in under 7 days"
             description: "Renewal should have happened at day 20 of 30. A sealed Vault is the likely cause - unseal it (3 of 5 keys), then check the Certificate's events."
+        # estate ev-173: a certificate passed its renewal time and was not renewed. Fires at day
+        # 20 + 1 h - ten days before expiry, three days before CertManagerCertExpiringSoon. A
+        # renewal time of 0 (not yet set) is ignored.
+        - alert: CertManagerRenewalOverdue
+          expr: (time() - (max by (namespace, name) (certmanager_certificate_renewal_timestamp_seconds) > 0)) > 0
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} missed its renewal"
+            description: "It should have renewed {{ $value | humanizeDuration }} ago (day 20 of 30), so about ten days remain before it expires. FIRST check that Vault is unsealed (vault-0 1/1; the VaultSealed alert) - unseal with 3 of 5 keys. Then: kubectl -n {{ $labels.namespace }} describe certificate {{ $labels.name }}."
         - alert: CertManagerAbsent
           expr: absent(up{job="cert-manager"} == 1)
           for: 15m
