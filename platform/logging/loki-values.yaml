@@ -129,6 +129,7 @@ extraObjects:
               {{`{{ htpasswd "gitlab" .gitlab "bcrypt" }}`}}
               {{`{{ htpasswd "jenkins" .jenkins "bcrypt" }}`}}
               {{`{{ htpasswd "remote-host-2" .remote_host_2 "bcrypt" }}`}}
+              {{`{{ htpasswd "pve1" .pve1 "bcrypt" }}`}}
       data:
         - secretKey: remote_host_1
           remoteRef:
@@ -159,4 +160,9 @@ extraObjects:
         - secretKey: remote_host_2
           remoteRef:
             key: platform/loki-push/remote-host-2
+            property: password
+        # estate ev-192 D (s105): the hypervisor itself - its journal (pve daemons, vzdump, sshd)
+        - secretKey: pve1
+          remoteRef:
+            key: platform/loki-push/pve1
             property: password
