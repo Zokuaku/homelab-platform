@@ -123,8 +123,14 @@ extraObjects:
           data:
             .htpasswd: |
               {{`{{ htpasswd "remote-host-1" .remote_host_1 "bcrypt" }}`}}
+              {{`{{ htpasswd "rancher" .rancher "bcrypt" }}`}}
       data:
         - secretKey: remote_host_1
           remoteRef:
             key: platform/loki-push/remote-host-1
+            property: password
+        # estate ev-192 D (s105): the Rancher server VM - its journal and its container's log
+        - secretKey: rancher
+          remoteRef:
+            key: platform/loki-push/rancher
             property: password
