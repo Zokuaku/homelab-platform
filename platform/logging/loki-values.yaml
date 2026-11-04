@@ -124,6 +124,11 @@ extraObjects:
             .htpasswd: |
               {{`{{ htpasswd "remote-host-1" .remote_host_1 "bcrypt" }}`}}
               {{`{{ htpasswd "rancher" .rancher "bcrypt" }}`}}
+              {{`{{ htpasswd "portainer" .portainer "bcrypt" }}`}}
+              {{`{{ htpasswd "traefik" .traefik "bcrypt" }}`}}
+              {{`{{ htpasswd "gitlab" .gitlab "bcrypt" }}`}}
+              {{`{{ htpasswd "jenkins" .jenkins "bcrypt" }}`}}
+              {{`{{ htpasswd "remote-host-2" .remote_host_2 "bcrypt" }}`}}
       data:
         - secretKey: remote_host_1
           remoteRef:
@@ -133,4 +138,25 @@ extraObjects:
         - secretKey: rancher
           remoteRef:
             key: platform/loki-push/rancher
+            property: password
+        # estate ev-192 D (s105): five more guest VMs - their journals and container logs
+        - secretKey: portainer
+          remoteRef:
+            key: platform/loki-push/portainer
+            property: password
+        - secretKey: traefik
+          remoteRef:
+            key: platform/loki-push/traefik
+            property: password
+        - secretKey: gitlab
+          remoteRef:
+            key: platform/loki-push/gitlab
+            property: password
+        - secretKey: jenkins
+          remoteRef:
+            key: platform/loki-push/jenkins
+            property: password
+        - secretKey: remote_host_2
+          remoteRef:
+            key: platform/loki-push/remote-host-2
             property: password
