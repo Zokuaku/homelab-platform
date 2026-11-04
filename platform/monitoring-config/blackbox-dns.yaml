@@ -61,6 +61,15 @@ data:
           no_follow_redirects: true
           fail_if_not_ssl: true
           valid_status_codes: [200, 301, 302, 303, 307, 308, 401, 403]
+      # estate ev-192 D: a plain-HTTP health endpoint probed DIRECTLY (not through the proxy, whose
+      # allow lists answer 403 and would count as up above): only a 200 counts.
+      http_200:
+        prober: http
+        timeout: 5s
+        http:
+          preferred_ip_protocol: ip4
+          follow_redirects: false
+          valid_status_codes: [200]
       # estate ev-173: is Vault UNSEALED? /v1/sys/health answers 200 only when Vault is initialised,
       # unsealed and active; 503 = sealed, 501 = not initialised, 429 = standby. The target is the
       # pod itself through the headless vault-internal Service, which publishes NOT-ready pods - a
@@ -97,7 +106,7 @@ spec:
         app.kubernetes.io/name: blackbox-dns
       annotations:
         # bump when blackbox.yml above changes: the exporter reads it at start
-        blackbox-dns/config-rev: "3"   # bump on a blackbox.yml change: the pod restarts and reads it
+        blackbox-dns/config-rev: "4"   # bump on a blackbox.yml change: the pod restarts and reads it
     spec:
       containers:
         - name: blackbox-exporter
