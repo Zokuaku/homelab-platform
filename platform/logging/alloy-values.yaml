@@ -38,14 +38,64 @@ alloy:
         forward_to = [loki.write.default.receiver]
       }
 
+      // estate ev-192 D: the node's own journal - k3s.service (API server, embedded etcd,
+      // kubelet), sshd, the kernel - read from the host's /var/log/journal (the chart's varlog
+      // mount, read-only). Same labels as the guests' agents (services/proxmox/host/guest-logs.sh).
+      loki.relabel "journal" {
+        forward_to = []
+        rule {
+          source_labels = ["__journal__systemd_unit"]
+          target_label  = "unit"
+        }
+        // one label value for every login session, or each ssh session becomes its own stream
+        rule {
+          source_labels = ["__journal__systemd_unit"]
+          regex         = "session-[0-9]+[.]scope"
+          target_label  = "unit"
+          replacement   = "session.scope"
+        }
+        rule {
+          source_labels = ["__journal__transport"]
+          target_label  = "transport"
+        }
+        rule {
+          source_labels = ["__journal_priority_keyword"]
+          target_label  = "level"
+        }
+      }
+
+      loki.source.journal "node" {
+        path          = "/var/log/journal"
+        max_age       = "12h"
+        relabel_rules = loki.relabel.journal.rules
+        labels        = { job = "k3s", host = sys.env("HOSTNAME"), source = "journal" }
+        forward_to    = [loki.write.default.receiver]
+      }
+
       loki.write "default" {
         endpoint {
           url = "http://loki.logging.svc.cluster.local:3100/loki/api/v1/push"
         }
       }
+  # /var/log from the host, read-only (the journal above); /etc/machine-id so the journal
+  # reader matches the node's own journal folder (/var/log/journal/<machine-id>/)
+  mounts:
+    varlog: true
+    extra:
+      - name: machine-id
+        mountPath: /etc/machine-id
+        readOnly: true
   resources:
     requests:
       cpu: 50m
       memory: 128Mi
     limits:
       memory: 256Mi
+
+controller:
+  volumes:
+    extra:
+      - name: machine-id
+        hostPath:
+          path: /etc/machine-id
+          type: File
