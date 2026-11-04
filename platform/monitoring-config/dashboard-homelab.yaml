@@ -1229,7 +1229,7 @@ data:
           "id": 20,
           "type": "bargauge",
           "title": "Disk used",
-          "description": "pve1 (root + vpool), k3s-node-1 (its disk also holds every cluster volume - local-path), the observer.",
+          "description": "pve1 (root + vpool), k3s-node-1 (its disk also holds every cluster volume - local-path), the observer, remote-host-1, and since ev-192 D the guest VMs with host metrics (job guest-node: rancher, portainer, traefik, gitlab, jenkins, remote-host-2).",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -1246,7 +1246,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "(1 - node_filesystem_avail_bytes{job=~\"proxmox-node|node-exporter|observer-node\", mountpoint=~\"/|/vpool\"} / node_filesystem_size_bytes{job=~\"proxmox-node|node-exporter|observer-node\", mountpoint=~\"/|/vpool\"}) * on(job, instance) group_left(nodename) node_uname_info",
+              "expr": "(1 - node_filesystem_avail_bytes{job=~\"proxmox-node|node-exporter|observer-node|game-node|guest-node\", mountpoint=~\"/|/vpool\"} / node_filesystem_size_bytes{job=~\"proxmox-node|node-exporter|observer-node|game-node|guest-node\", mountpoint=~\"/|/vpool\"}) * on(job, instance) group_left(nodename) node_uname_info",
               "refId": "A",
               "legendFormat": "{{nodename}} {{mountpoint}}",
               "instant": true,
