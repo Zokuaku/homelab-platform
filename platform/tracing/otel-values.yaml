@@ -9,6 +9,14 @@ replicaCount: 1
 image:
   repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-k8s
 
+# estate ev-192 D: the collector's own metrics. The chart's default config already serves them
+# on the pod at :8888 (service.telemetry.metrics, a pull reader); only the Service port is off
+# by default. Scraped by the ServiceMonitor otel-collector in
+# platform/monitoring-config/servicemonitors-pipeline.yaml (job otel-collector).
+ports:
+  metrics:
+    enabled: true
+
 resources:
   requests:
     cpu: 50m
