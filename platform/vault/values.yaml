@@ -50,6 +50,11 @@ server:
           tls_cert_file = "/vault/userconfig/vault-server-tls/tls.crt"
           tls_key_file  = "/vault/userconfig/vault-server-tls/tls.key"
           tls_disable_client_certs = true
+          # estate ev-192 D: /v1/sys/metrics answers without a token - counters and timings,
+          # no secret material (Vault's documented setting for a Prometheus scrape).
+          telemetry {
+            unauthenticated_metrics_access = true
+          }
         }
 
         storage "raft" {
@@ -57,6 +62,13 @@ server:
         }
 
         service_registration "kubernetes" {}
+
+        # estate ev-192 D: Prometheus-format telemetry. Read at start only: a change here needs
+        # the pod deleted (OnDelete) and Vault unsealed again (3 of 5 keys).
+        telemetry {
+          prometheus_retention_time = "24h"
+          disable_hostname          = true
+        }
 
   # Raft data on k3s local-path (single-node today; revisit with #38 storage strategy).
   dataStorage:

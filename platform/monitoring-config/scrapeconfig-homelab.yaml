@@ -128,3 +128,34 @@ spec:
       targetLabel: instance
     - targetLabel: __address__
       replacement: blackbox-dns.monitoring.svc:9115
+---
+# estate ev-192 D: Vault's own telemetry (requests, tokens, leases, raft, seal) - not only the
+# seal probe above. /v1/sys/metrics answers without a token since the listener's
+# unauthenticated_metrics_access (platform/vault/values.yaml). TLS is verified against
+# homelab-vault-ca (the blackbox-vault-ca ConfigMap); server name = the certificate's SAN.
+# Add vault-1 / vault-2 here when Vault goes HA (bl-027).
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: vault
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  jobName: vault
+  scheme: HTTPS
+  metricsPath: /v1/sys/metrics
+  params:
+    format: [prometheus]
+  scrapeInterval: 30s
+  tlsConfig:
+    ca:
+      configMap:
+        name: blackbox-vault-ca
+        key: vault-ca.crt
+    serverName: vault-internal.vault.svc.cluster.local
+  staticConfigs:
+    - targets:
+        - vault-0.vault-internal.vault.svc.cluster.local.:8200
+      labels:
+        instance: vault-0
