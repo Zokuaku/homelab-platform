@@ -10,6 +10,7 @@ resources:
   - blackbox-dns.yaml
   - rules-dns.yaml
   - externalsecret-snmp-exporter.yaml
+  - snmp-exporter-module-afda.yaml
   - snmp-exporter.yaml
   - rules-cert-manager.yaml
   - rules-vault.yaml
