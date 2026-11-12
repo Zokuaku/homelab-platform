@@ -18,7 +18,7 @@ spec:
     - name: dns
       rules:
         - alert: DNSResolverDown
-          # A bind9 reconfig or container recreate takes seconds; 3 minutes is not a reload.
+          # A redeploy of the resolver's stack takes seconds; 3 minutes is not a redeploy.
           expr: probe_success{job="dns-internal"} == 0
           for: 3m
           labels:
@@ -27,9 +27,11 @@ spec:
             summary: "Internal resolver {{ $labels.instance }} not answering example.com"
             description: >-
               {{ $labels.instance }} has failed the internal-name probe for 3 minutes. The house
-              still resolves through the other resolver, but there is no redundancy left. bind9 is
-              .53, bind9-b is .54, both on pve1: ssh root@<ip> 'docker ps;
-              docker logs --tail 30 dns' (services/bind9/docs/RUNBOOK.md).
+              still resolves through the other resolver, but there is no redundancy left. Each
+              resolver runs AdGuard Home in front of Unbound (estate ev-193): on the resolver,
+              'docker ps' must show dns-adguard and dns-unbound up; then
+              'docker logs --tail 30 dns-adguard' and 'docker logs --tail 30 dns-unbound'.
+              The last good config can be put back with the stack's deploy script.
         - alert: DNSAllResolversDown
           expr: sum(probe_success{job="dns-internal"}) == 0
           for: 2m
@@ -53,20 +55,23 @@ spec:
             description: >-
               The resolver answers internal names but not example.com: its DNS-over-TLS upstream
               (Cloudflare / Quad9, tcp 853) is unreachable or rejecting it. Check the WAN, then
-              'docker logs dns | grep -i tls' on the resolver (a provider certificate change shows
-              as 'TLS peer certificate verification failed').
+              'docker logs dns-unbound | grep -iE "tls|ssl|error"' on the resolver (a provider
+              certificate change shows as a failed TLS verification). The DNS dashboard's
+              'Upstream answer time' and 'Answers by result' panels show when it began.
         - alert: DNSSecondaryBehind
-          # NOTIFY normally brings bind9-b level within seconds; the zone refresh is 12 h.
+          # Both resolvers read the SAME zone file, copied to each by the zone deploy: a difference
+          # means a deploy reached one resolver and not the other.
           expr: max(probe_dns_serial{job="dns-soa"}) - min(probe_dns_serial{job="dns-soa"}) > 0
           for: 30m
           labels:
             severity: warning
           annotations:
-            summary: "bind9-b's example.com serial is behind bind9's for 30 minutes"
+            summary: "The two resolvers serve different versions of example.com for 30 minutes"
             description: >-
-              The secondary has not picked up the primary's latest zone. Check the transfer on
-              .54: docker logs dns 2>&1 | grep -i transfer - 'bad key' or REFUSED means the two
-              xfer.key files differ or the primary lost allow-transfer (bind9 RUNBOOK 5a).
+              The zone's serial differs between the resolvers: a zone deploy reached one and not
+              the other, so an internal name can answer differently depending on which resolver a
+              device asks. Run the zone deploy again for both; on each resolver
+              'docker exec dns-unbound unbound-control list_auth_zones' shows the serial it holds.
     # The resolvers' own view (estate ev-193 step I, s111): job dns-unbound, scrapeconfig-dns.yaml.
     # The probes above say whether a resolver ANSWERS; these say how it is doing while it does.
     - name: dns-stack

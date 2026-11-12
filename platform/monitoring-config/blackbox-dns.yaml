@@ -1,8 +1,9 @@
 # DNS probes for the house's two internal resolvers (estate EVOLUTION ev-152, s88 2026-10-17).
-# WHY: since ev-151 the router resolves through bind9 (.53) and bind9-b (.54) ONLY - no public
+# WHY: since ev-151 the house resolves through its two internal resolvers ONLY - no public
 # fallback. If one dies quietly the house keeps working on the other and nobody knows the
-# redundancy is gone; if bind9-b's copy of example.com stops refreshing, it serves stale
-# internal names. This blackbox_exporter probes each resolver every 30 s with three modules:
+# redundancy is gone; if one resolver's copy of example.com falls behind, it serves stale
+# internal names. (Since estate ev-193 each resolver is AdGuard Home in front of Unbound; the
+# probes did not change - same addresses, same answers expected.) This blackbox_exporter probes each resolver every 30 s with three modules:
 #   dns_internal  gitlab.example.com A must be 192.0.2.20 (the zone, primary or secondary)
 #   dns_public    example.com A must be NOERROR (recursion through the resolver's DoT upstream -
 #                 note serve-stale (ev-152) can keep this green for a while during an upstream
