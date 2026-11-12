@@ -42,6 +42,13 @@ loki:
       - selector: '{job="game-node"}'
         priority: 1
         period: 720h
+      # The resolvers' lines - every lookup, per device - also 30 days (estate ev-193 step I,
+      # the operator 2026-11-02: 'retain it for 30 days like the rest of the logging'). About 30 MB a
+      # day before compression at the first day's rate; measured after a week (estate bl-115
+      # watches this volume).
+      - selector: '{job="dns"}'
+        priority: 1
+        period: 720h
   compactor:
     retention_enabled: true
     delete_request_store: filesystem
@@ -130,10 +137,22 @@ extraObjects:
               {{`{{ htpasswd "jenkins" .jenkins "bcrypt" }}`}}
               {{`{{ htpasswd "remote-host-2" .remote_host_2 "bcrypt" }}`}}
               {{`{{ htpasswd "pve1" .pve1 "bcrypt" }}`}}
+              {{`{{ htpasswd "dns-a" .dns_a "bcrypt" }}`}}
+              {{`{{ htpasswd "dns-b" .dns_b "bcrypt" }}`}}
       data:
         - secretKey: remote_host_1
           remoteRef:
             key: platform/loki-push/remote-host-1
+            property: password
+        # estate ev-193 step I (s111): the two resolver CTs - AdGuard Home's query log, the
+        # two containers' logs and the CT journal, as {job="dns", host="dns-a|dns-b"}
+        - secretKey: dns_a
+          remoteRef:
+            key: platform/loki-push/dns-a
+            property: password
+        - secretKey: dns_b
+          remoteRef:
+            key: platform/loki-push/dns-b
             property: password
         # estate ev-192 D (s105): the Rancher server VM - its journal and its container's log
         - secretKey: rancher

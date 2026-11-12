@@ -67,3 +67,46 @@ spec:
               The secondary has not picked up the primary's latest zone. Check the transfer on
               .54: docker logs dns 2>&1 | grep -i transfer - 'bad key' or REFUSED means the two
               xfer.key files differ or the primary lost allow-transfer (bind9 RUNBOOK 5a).
+    # The resolvers' own view (estate ev-193 step I, s111): job dns-unbound, scrapeconfig-dns.yaml.
+    # The probes above say whether a resolver ANSWERS; these say how it is doing while it does.
+    - name: dns-stack
+      rules:
+        - alert: DNSResolverMetricsDown
+          expr: up{job="dns-unbound"} == 0 or unbound_up{job="dns-unbound"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.instance }}: Unbound's counters cannot be read"
+            description: >-
+              Either the exporter on the resolver is not answering (systemctl status
+              dns-unbound-exporter) or it answers and unbound-control does not (docker ps: is
+              dns-unbound up and healthy?). If DNSResolverDown is NOT firing the house still
+              resolves through this resolver - it is running blind, not down.
+        - alert: DNSUpstreamFailing
+          expr: >-
+            sum by (instance) (rate(unbound_answers_total{job="dns-unbound", rcode="SERVFAIL"}[10m]))
+            / sum by (instance) (rate(unbound_queries_total{job="dns-unbound"}[10m])) > 0.05
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.instance }}: more than 5% of answers are SERVFAIL"
+            description: >-
+              One answer in twenty has failed for 15 minutes. Usual causes, in order: the
+              DNS-over-TLS upstreams (Cloudflare, Quad9, tcp 853) unreachable or refusing the
+              certificate - docker logs dns-unbound | grep -iE "tls|ssl|error"; a zone failing
+              DNSSEC validation for everyone (not ours to fix); the example.com zone file not
+              loading after a zone deploy - unbound-control list_auth_zones.
+        - alert: DNSServingStale
+          expr: increase(unbound_expired_served_total{job="dns-unbound"}[10m]) > 50
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.instance }} is answering from expired cache"
+            description: >-
+              Serve-stale is doing its job: the upstreams are not answering in time, so recently
+              used names are served from the expired cache (for up to 12 hours) and names never
+              asked before fail. Check the WAN and the upstreams; this clears by itself when
+              they answer again.
