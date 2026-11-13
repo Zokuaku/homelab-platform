@@ -24,7 +24,7 @@ OUT="${OUT:-rendered}/$MODE"
 KUBE_VERSION="${KUBE_VERSION:-1.36.0}"
 # API versions Argo CD would report from THIS cluster: charts gate ServiceMonitor/PrometheusRule
 # templates on them (Capabilities.APIVersions.Has). Keep in step with what the cluster serves.
-API_VERSIONS=(monitoring.coreos.com/v1 external-secrets.io/v1 external-secrets.io/v1beta1)
+API_VERSIONS=(monitoring.coreos.com/v1 external-secrets.io/v1 external-secrets.io/v1beta1 cert-manager.io/v1 postgresql.cnpg.io/v1)
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
