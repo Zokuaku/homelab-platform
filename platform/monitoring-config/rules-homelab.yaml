@@ -72,6 +72,33 @@ spec:
           annotations:
             summary: "Observer job {{ $labels.unit }} failed on its last run"
             description: "journalctl -u {{ $labels.unit }} -n 50 on the observer. afda-netdev-backup: a FAIL line names the step."
+        # bl-174: the jobs of OTHER hosts, read by the observer over a forced-command ssh key
+        # (estate management/host/afda-jobprobe.py -> afda_jobprobe.prom, host + unit labels)
+        - alert: RemoteJobFailed
+          expr: afda_remote_job_last_run_success == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Job {{ $labels.unit }} on {{ $labels.host }} failed on its last run"
+            description: "ssh {{ $labels.host }} 'journalctl -u {{ $labels.unit }} -n 50' (the Result and exit status came from systemctl show)."
+        - alert: RemoteJobStale
+          # a job systemd has no run record for (last run 0) is not judged here
+          expr: ((time() - afda_remote_job_last_success_timestamp_seconds) > (afda_remote_job_expected_interval_seconds * 1.1 + 7200)) and on (host, unit) (afda_remote_job_last_run_timestamp_seconds > 0)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Job {{ $labels.unit }} on {{ $labels.host }} has not succeeded in its period"
+            description: "systemctl list-timers {{ $labels.unit }}.timer on {{ $labels.host }}; journalctl -u {{ $labels.unit }} -n 50."
+        - alert: RemoteJobProbeFailing
+          expr: afda_remote_job_probe_success == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The observer cannot read {{ $labels.unit }} on {{ $labels.host }}"
+            description: "On the observer: sudo systemctl start afda-jobprobe && journalctl -u afda-jobprobe -n 20. Host unreachable, key line removed, host key changed, or the unit renamed - the job is UNWATCHED meanwhile."
         - alert: TextfileWriterStale
           expr: (time() - afda_textfile_written_timestamp_seconds) > 1800
           for: 10m
@@ -79,7 +106,7 @@ spec:
             severity: warning
           annotations:
             summary: "The {{ $labels.writer }} textfile writer stopped - the backup ages it reports are frozen"
-            description: "pve: afda-pve-textfile.timer on pve1; observer-jobs: afda-jobs-textfile.timer on the observer."
+            description: "pve: afda-pve-textfile.timer on pve1; observer-jobs: afda-jobs-textfile.timer on the observer; observer-jobprobe: afda-jobprobe.timer on the observer."
     - name: homelab-services
       rules:
         - alert: ObserverDown
