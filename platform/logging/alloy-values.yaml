@@ -46,7 +46,7 @@ alloy:
       // separately in loki_process_dropped_lines_total{reason="older_than_6d"}.
       loki.process "pods" {
         stage.drop {
-          older_than          = "6d"
+          older_than          = "144h"   // 6 days - a Go duration: "d" is NOT a unit ("6d" crash-looped Alloy, s116)
           drop_counter_reason = "older_than_6d"
         }
         forward_to = [loki.write.default.receiver]
