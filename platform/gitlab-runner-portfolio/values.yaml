@@ -13,4 +13,4 @@
 # Registration: ONCE in the GitLab UI (group portfolio -> Build -> Runners, tag portfolio-k8s,
 # untagged OFF, protected OFF). Records: the private operations repository, services/gitlab-runner/.
 
-concurrent: 1            # one job pod at a time: the estate runner may already be running two on this node
+concurrent: 1            # one job pod at a time: the estate runner may already be running six on this node (s116)

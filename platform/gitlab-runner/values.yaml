@@ -10,7 +10,7 @@
 
 gitlabUrl: https://gitlab.example.com/
 
-concurrent: 2            # two job pods at most — the node also hosts Vault, Argo CD, observability
+concurrent: 6            # six job pods at most (was 2 until s116, the operator: MRs queued for a runner slot; k3s-node-1 read 34% CPU / 45% memory of 8 cores / 24 GiB) — the node also hosts Vault, Argo CD, observability
 checkInterval: 10
 unregisterRunners: false # the runner is UI-owned; a chart delete must not delete the group runner
 
@@ -40,7 +40,7 @@ runners:
         allow_privilege_escalation = false
         poll_timeout = 600
         cpu_request = "100m"
-        cpu_limit = "1"
+        cpu_limit = "2"
         memory_request = "128Mi"
         memory_limit = "1Gi"
         helper_cpu_request = "50m"
