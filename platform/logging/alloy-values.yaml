@@ -35,6 +35,20 @@ alloy:
 
       loki.source.kubernetes "pods" {
         targets    = discovery.relabel.pods.output
+        forward_to = [loki.process.pods.receiver]
+      }
+
+      // estate bl-177: the pod-log source re-sends lines older than Loki's 7-day limit
+      // (reject_old_samples_max_age 168h, loki-values.yaml); Loki answers 400 'timestamp too old'
+      // and loki.write drops the batch, so loki_write_dropped_entries_total ran ~300/h of noise.
+      // Dropping them here, at 6d (a day of margin under 168h), keeps that counter at zero in
+      // normal running so LokiWriteDropping (rules-pipeline.yaml) can alert on it. Counted
+      // separately in loki_process_dropped_lines_total{reason="older_than_6d"}.
+      loki.process "pods" {
+        stage.drop {
+          older_than          = "6d"
+          drop_counter_reason = "older_than_6d"
+        }
         forward_to = [loki.write.default.receiver]
       }
 
