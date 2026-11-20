@@ -15,6 +15,7 @@
 #     itself (kubelet probes; a curl to the ClusterIP from k3s-node-1) arrives from the bridge address
 #   - 192.0.2.20 Traefik - the two routes
 #   - 192.0.2.40 the Docker host - Dashy's status dots and Uptime Kuma (health endpoints)
+#   - 192.0.2.50 the observer - ev-223 estate status feed, the query API
 # Anything else on the LAN: dropped at the pod.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -35,3 +36,4 @@ spec:
         - ipBlock: {cidr: 192.0.2.10/32}
         - ipBlock: {cidr: 192.0.2.20/32}
         - ipBlock: {cidr: 192.0.2.40/32}
+        - ipBlock: {cidr: 192.0.2.50/32}
