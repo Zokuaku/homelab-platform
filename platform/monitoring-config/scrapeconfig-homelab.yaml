@@ -36,6 +36,13 @@ spec:
         - https://jenkins.example.com/
         - https://uptime.example.com/
         - https://pve1.example.com:8006/
+    # estate ev-224 A5: two OUTSIDE services, each pinned to its node on the estate map
+    # (estate_node = the map's node id; scripts/estate_status.py lands the series on that node).
+    # Public, unauthenticated endpoints: github.com's front page and Cloudflare's published IP ranges.
+    - targets: ["https://github.com/"]
+      labels: {estate_node: "github"}
+    - targets: ["https://api.cloudflare.com/client/v4/ips"]
+      labels: {estate_node: "cloudflare"}
   relabelings:
     - sourceLabels: [__address__]
       targetLabel: __param_target
