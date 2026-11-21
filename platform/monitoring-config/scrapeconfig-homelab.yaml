@@ -1,6 +1,7 @@
 # Scrape jobs for the Homelab overview (estate EVOLUTION ev-162):
 #   https-services - the example.com services through the blackbox exporter's https_up module
 #                    (answering + certificate expiry). Uptime Kuma's checks move here (bl-147).
+#   https-outside  - GitHub and the Cloudflare API, same module, for the estate map only (ev-224).
 #   observer-node  - the observer VM's node_exporter, including the textfile of its jobs' last
 #                    success (estate management/host/afda-jobs-textfile.py).
 #   argocd         - the ArgoCD application controller's metrics (argocd_app_info: sync + health).
@@ -36,9 +37,33 @@ spec:
         - https://jenkins.example.com/
         - https://uptime.example.com/
         - https://pve1.example.com:8006/
-    # estate ev-224 A5: two OUTSIDE services, each pinned to its node on the estate map
-    # (estate_node = the map's node id; scripts/estate_status.py lands the series on that node).
-    # Public, unauthenticated endpoints: github.com's front page and Cloudflare's published IP ranges.
+  relabelings:
+    - sourceLabels: [__address__]
+      targetLabel: __param_target
+    - sourceLabels: [__param_target]
+      regex: "https://([^/:]+).*"
+      targetLabel: instance
+    - targetLabel: __address__
+      replacement: blackbox-dns.monitoring.svc:9115
+---
+# estate ev-224 A5: two OUTSIDE services, each pinned to its node on the estate map (estate_node =
+# the map's node id; scripts/estate_status.py lands the series on that node). Public, unauthenticated
+# endpoints. A job of its own on purpose: ServiceEndpointDown, CertificateExpiringSoon and the Homelab
+# dashboard read job="https-services", and an outage at a vendor is not an estate service down.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: https-outside
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  jobName: https-outside
+  metricsPath: /probe
+  params:
+    module: [https_up]
+  scrapeInterval: 60s
+  staticConfigs:
     - targets: ["https://github.com/"]
       labels: {estate_node: "github"}
     - targets: ["https://api.cloudflare.com/client/v4/ips"]
