@@ -88,6 +88,12 @@ data:
           tls_config:
             ca_file: /etc/blackbox-ca/vault-ca.crt
             server_name: vault-internal.vault.svc.cluster.local
+      # estate ev-224: does anything accept a TCP connection at this address and port?
+      tcp_connect:
+        prober: tcp
+        timeout: 5s
+        tcp:
+          preferred_ip_protocol: ip4
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -107,7 +113,7 @@ spec:
         app.kubernetes.io/name: blackbox-dns
       annotations:
         # bump when blackbox.yml above changes: the exporter reads it at start
-        blackbox-dns/config-rev: "4"   # bump on a blackbox.yml change: the pod restarts and reads it
+        blackbox-dns/config-rev: "5"   # bump on a blackbox.yml change: the pod restarts and reads it
     spec:
       containers:
         - name: blackbox-exporter
