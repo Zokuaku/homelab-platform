@@ -94,6 +94,16 @@ data:
         timeout: 5s
         tcp:
           preferred_ip_protocol: ip4
+      # estate ev-230: a vendor's public status page (the common Statuspage JSON) reports no incident.
+      statuspage_ok:
+        prober: http
+        timeout: 10s
+        http:
+          preferred_ip_protocol: ip4
+          follow_redirects: false
+          fail_if_not_ssl: true
+          valid_status_codes: [200]
+          fail_if_body_not_matches_regexp: ['"indicator":\s*"none"']
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -113,7 +123,7 @@ spec:
         app.kubernetes.io/name: blackbox-dns
       annotations:
         # bump when blackbox.yml above changes: the exporter reads it at start
-        blackbox-dns/config-rev: "5"   # bump on a blackbox.yml change: the pod restarts and reads it
+        blackbox-dns/config-rev: "6"   # bump on a blackbox.yml change: the pod restarts and reads it
     spec:
       containers:
         - name: blackbox-exporter
