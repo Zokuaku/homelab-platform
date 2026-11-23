@@ -36,6 +36,7 @@ spec:
         - https://rancher.example.com/
         - https://jenkins.example.com/
         - https://uptime.example.com/
+        - https://dashy.example.com/
         - https://pve1.example.com:8006/
   relabelings:
     - sourceLabels: [__address__]
